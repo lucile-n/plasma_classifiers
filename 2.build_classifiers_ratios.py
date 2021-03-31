@@ -1,10 +1,10 @@
 '''
-2.build_classifiers.py
-created on March 16 2021
+2.build_classifiers_ratios.py
+created on March 24 2021
 lucile.neyton@ucsf.edu
 
 This script aims at building classifiers to allocate samples to one of the two
-groups (sepsis vs non-sepsis) given gene expression values.
+groups (sepsis vs non-sepsis) given gene expression ratios.
 The final models are tested on a held-out set.
 
 Input files (data folder):
@@ -20,6 +20,9 @@ Output files (results folder):
 '''
 
 # load libraries and functions
+#
+import sys
+sys.path.append("/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_VALID/de_analysis")
 #
 from custom_classes import VstTransformer, CustomRFECV, CustomBaggingClassifier, DGEA_filter
 #
@@ -45,16 +48,38 @@ from joblib import dump, load
 data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/data/"
 results_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/results/"
 
+# define functions
+# build ratio object
+def build_ratios_df(expr_data, name_vars, name_samps):
+    # convert numpy array to df
+    expr_data = pd.DataFrame(expr_data, index=name_samps, columns=name_vars)
+
+    # cols should be = ncol! / (2! * (ncol-2)!)
+    ratios_df = pd.DataFrame(index=name_samps)
+    for gene_ind_1 in range(0, expr_data.shape[1]):
+        for gene_ind_2 in range(0, expr_data.shape[1]):
+            if gene_ind_1 < gene_ind_2:
+                gene_data_1 = expr_data[name_vars[gene_ind_1]]
+                gene_data_2 = expr_data[name_vars[gene_ind_2]]
+
+                gene_ratio = gene_data_1 / gene_data_2
+
+                ratios_df[name_vars[gene_ind_1] + "/" + name_vars[gene_ind_2]] = gene_ratio
+
+    return ratios_df
+
 # set params
 mode_ = "load"
 
 # list parameter values
-min_cnts_per_sample_vals = ['50000', '100000']
+# limit to some values
+min_cnts_per_sample_vals = ['50000']
 min_non_zero_counts_per_genes_vals = ['20', '30', '40', '50']
-fdr_thresh_vals = ['0.01', '0.05', '0.1']
+fdr_thresh_vals = ['0.1']
 age_sex_model_vals = ['TRUE', 'FALSE']
 
-comb_list = list(product(min_cnts_per_sample_vals, min_non_zero_counts_per_genes_vals, fdr_thresh_vals, age_sex_model_vals))
+comb_list = list(product(min_cnts_per_sample_vals, min_non_zero_counts_per_genes_vals,
+                         fdr_thresh_vals, age_sex_model_vals))
 
 for comb_ in comb_list:
     results_prefix = comb_[0] + "_" + comb_[1] + "_" + comb_[2] + "_" + comb_[3]
@@ -75,6 +100,7 @@ for comb_ in comb_list:
     #########################
     # keep only DE genes
     cnt_data = cnt_data.loc[cnt_data.hgnc_symbol.isin(dgea_results.hgnc_symbol.values), :]
+
     cnt_data.index = cnt_data.hgnc_symbol
     cnt_data = cnt_data.loc[dgea_results.hgnc_symbol.values, :]
     cnt_data = cnt_data.drop("hgnc_symbol", axis=1)
@@ -104,18 +130,16 @@ for comb_ in comb_list:
     vst_data_train = vst_transformer.transform(cnt_data_train)
     vst_data_test = vst_transformer.transform(cnt_data_test)
 
-    # apply standard scaling to vst datasets
-    standard_scaler = StandardScaler()
-    standard_scaler = standard_scaler.fit(vst_data_train)
-    vst_data_train = standard_scaler.transform(vst_data_train)
-    vst_data_test = standard_scaler.transform(vst_data_test)
+    # build ratio objects
+    vst_data_ratios_train = build_ratios_df(vst_data_train, name_vars, name_samps_train)
+    vst_data_ratios_test = build_ratios_df(vst_data_test, name_vars, name_samps_test)
 
     #########################
     # XGBOOST - CV within a CV for grid search and RFE as part of a pipeline
     # n_jobs should be set to 1/None (or at least not -1 in both) to avoid nested parallelism
     #########################
-    rfecv = CustomRFECV(estimator=XGBClassifier(random_state=123, nthread=1), cv=5, n_jobs=1, scoring='roc_auc', step=0.1,
-                        min_features_to_select=2, verbose=True, max_features=100)
+    rfecv = CustomRFECV(estimator=XGBClassifier(random_state=123, nthread=1), cv=5, n_jobs=1, scoring='roc_auc',
+                        step=0.1, min_features_to_select=2, verbose=True, max_features=100)
 
     # pipeline steps
     pipe = Pipeline([('rfe', rfecv), ('xgbc', XGBClassifier())])
@@ -135,23 +159,23 @@ for comb_ in comb_list:
 
     if mode_ == "create":
         # fit the chosen model
-        search.fit(vst_data_train, sepsis_cat_train)
-        dump(search, results_path + results_prefix + "_dump_xgb_de_genes.joblib")
+        search.fit(vst_data_ratios_train, sepsis_cat_train)
+        dump(search, results_path + results_prefix + "_ratios" + "_dump_xgb_de_genes.joblib")
     else:
         if mode_ == "load":
-            search = load(results_path + results_prefix + "_dump_xgb_de_genes.joblib")
+            search = load(results_path + results_prefix + "_ratios" + "_dump_xgb_de_genes.joblib")
 
     print(search.best_params_)
     print(search.best_score_)
-    print(name_vars[search.best_estimator_.named_steps["rfe"].support_])
+    print(vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_])
 
     # save list of predictors
-    best_vars = name_vars[search.best_estimator_.named_steps["rfe"].support_]
-    pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_best_vars_xgb_de_genes.csv", header=False,
+    best_vars = vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_]
+    pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_ratios" + "_best_vars_xgb_de_genes.csv", header=False,
                                    index=False)
 
     # evaluate on test data
-    probs = search.predict_proba(vst_data_test)
+    probs = search.predict_proba(vst_data_ratios_test)
     probs = probs[:, 1]
     roc_auc_xgb = roc_auc_score(sepsis_cat_test, probs)
     print(roc_auc_xgb)
@@ -181,23 +205,23 @@ for comb_ in comb_list:
 
     if mode_ == "create":
         # fit the chosen model
-        search.fit(vst_data_train, sepsis_cat_train)
-        dump(search, results_path + results_prefix + "_dump_bsvm_de_genes.joblib")
+        search.fit(vst_data_ratios_train, sepsis_cat_train)
+        dump(search, results_path + results_prefix + "_ratios" + "_dump_bsvm_de_genes.joblib")
     else:
         if mode_ == "load":
-            search = load(results_path + results_prefix + "_dump_bsvm_de_genes.joblib")
+            search = load(results_path + results_prefix + "_ratios" + "_dump_bsvm_de_genes.joblib")
 
     print(search.best_params_)
     print(search.best_score_)
-    print(name_vars[search.best_estimator_.named_steps["rfe"].support_])
+    print(vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_])
 
     # save list of predictors
-    best_vars = name_vars[search.best_estimator_.named_steps["rfe"].support_]
-    pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_best_vars_bsvm_de_genes.csv", header=False,
+    best_vars = vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_]
+    pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_ratios" + "_best_vars_bsvm_de_genes.csv", header=False,
                                    index=False)
 
     # evaluate on test data
-    probs = search.predict_proba(vst_data_test)
+    probs = search.predict_proba(vst_data_ratios_test)
     probs = probs[:, 1]
     roc_auc_bsvm = roc_auc_score(sepsis_cat_test, probs)
     print(roc_auc_bsvm)

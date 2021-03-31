@@ -1,6 +1,6 @@
 ######################################################
-# 4.make_post_classification_figures.R
-# created on March 18 2020
+# 3.make_post_classification_figures.R
+# created on March 18 2021
 # lucile.neyton@ucsf.edu
 
 # This script aims at generating figures
