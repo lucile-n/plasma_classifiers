@@ -33,14 +33,14 @@ results_path <-
 # DATA LOADING - XGB
 #########################
 algo <- "50000_40_FALSE"
-vsd <- read.csv(paste(data_path, "processed/50000_40_FALSE_vsd.csv", sep = ""), 
+vsd <- read.csv(paste(data_path, "processed/50000_40_0.1_FALSE_vsd.csv", sep = ""), 
                 row.names = 1)
-mapping_data <- read.csv(paste(data_path, "processed/50000_40_FALSE_cnts.csv", sep = ""),
+mapping_data <- read.csv(paste(data_path, "processed/50000_40_0.1_FALSE_cnts.csv", sep = ""),
                          row.names = 1)
-meta_data <- read.csv(paste(data_path, "processed/50000_40_FALSE_metadata_1vs4.csv", sep = ""),
+meta_data <- read.csv(paste(data_path, "processed/50000_40_0.1_FALSE_metadata_1vs4.csv", sep = ""),
                       row.names = 1)
 
-best_vars <- read.csv(paste(results_path, "50000_40_FALSE_best_vars_xgb_de_genes.csv", sep = ""),
+best_vars <- read.csv(paste(results_path, "50000_40_0.1_FALSE_best_vars_xgb_de_genes.csv", sep = ""),
                          header = FALSE)
 
 #########################
@@ -95,14 +95,14 @@ dev.off()
 # DATA LOADING - BSVM
 #########################
 algo <- "50000_20_FALSE"
-vsd <- read.csv(paste(data_path, "processed/50000_20_FALSE_vsd.csv", sep = ""), 
+vsd <- read.csv(paste(data_path, "processed/50000_20_0.1_FALSE_vsd.csv", sep = ""), 
                 row.names = 1)
-mapping_data <- read.csv(paste(data_path, "processed/50000_20_FALSE_cnts.csv", sep = ""),
+mapping_data <- read.csv(paste(data_path, "processed/50000_20_0.1_FALSE_cnts.csv", sep = ""),
                          row.names = 1)
-meta_data <- read.csv(paste(data_path, "processed/50000_20_FALSE_metadata_1vs4.csv", sep = ""),
+meta_data <- read.csv(paste(data_path, "processed/50000_20_0.1_FALSE_metadata_1vs4.csv", sep = ""),
                       row.names = 1)
 
-best_vars <- read.csv(paste(results_path, "50000_20_FALSE_best_vars_bsvm_de_genes.csv", sep = ""),
+best_vars <- read.csv(paste(results_path, "50000_20_0.1_FALSE_best_vars_bsvm_de_genes.csv", sep = ""),
                           header = FALSE)
 
 #########################
