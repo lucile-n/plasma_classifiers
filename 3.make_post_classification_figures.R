@@ -77,7 +77,8 @@ d_melt$sepsis_cat <- meta_data[d_melt$Var2, "sepsis_cat"]
 pdf(paste(results_path, paste(algo, "profile_plot.pdf", sep = "_"), sep = ""),
     width = 8, height = 5)
 ggplot(d_melt, aes(x=Var1, y=value, group=Var2, color=sepsis_cat)) +
-  geom_line()
+  geom_line() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 dev.off()
 
 # heatmap
