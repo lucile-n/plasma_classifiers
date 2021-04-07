@@ -46,6 +46,7 @@ from joblib import dump, load
 
 # set paths
 data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/data/"
+paxgene_data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_VALID/data/"
 results_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/results/"
 
 # define functions
@@ -69,7 +70,7 @@ def build_ratios_df(expr_data, name_vars, name_samps):
     return ratios_df
 
 # set params
-mode_ = "load"
+mode_ = "create"
 
 # list parameter values
 # limit to some values

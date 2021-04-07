@@ -15,7 +15,7 @@
 
 # Output files (results folder):
 # - One file with counts values per run.
-# - One file with normnalised (unscaled) gene expression values per run.
+# - One file with normalised (unscaled) gene expression values per run.
 # - One metadata file per run.
 # - One CSV file with significantly differentially expressed genes per run.
 ######################################################
@@ -40,9 +40,9 @@ results_path <-
 # SET PARAMETERS
 #########################
 # all parameter values to test
-min_cnts_per_sample_vals <- c(50000, 100000)
+min_cnts_per_sample_vals <- c(50000)
 min_non_zero_counts_per_genes_vals <- c(20, 30, 40, 50)
-fdr_thresh_vals <- c(0.01, 0.05, 0.1)
+fdr_thresh_vals <- c(0.1)
 age_sex_model_vals <- c(TRUE, FALSE)
 
 comb_mat <- expand.grid("min_cnts_per_sample" = min_cnts_per_sample_vals, 
@@ -60,11 +60,28 @@ sepsis_status_data_path <- paste(data_path, "raw/EARLI_metadata_plasma_only.xlsx
 # Age and sex status
 age_sex_data_path <- paste(extra_data_path, "raw/EARLI_sampletracking_phenotyping/FinalData_04172020.xlsx", sep = "")
 
+# paxgene data
+# select only overlapping samples
+paxgene_data_path <- paste(data_path, "raw/EARLI_star_pc_and_lincRNA_genecounts.qc.tsv", sep = "")
+
 # read data in
 cnt_data <- read.csv(cnt_data_path, row.names = 1)
 
 sepsis_status_data <- read_excel(sepsis_status_data_path, sheet=1)
 age_sex_data <- read_excel(age_sex_data_path, sheet=1)
+
+# add a column name for sepsis category
+colnames(sepsis_status_data)[4] <- "sepsis_cat"
+
+# merge sepsis status and age/sex data files
+meta_data <- merge(sepsis_status_data, age_sex_data, by.x="PatientID", by.y="barcode1", all=T)
+
+# read-in paxgene data to keep only samples in common
+paxgene_data <- read.table(paxgene_data_path, row.names = 1, sep="\t")
+
+# filter count data to only keep samples with a PAXgene tube
+to_keep <- sapply(colnames(paxgene_data), function(x) paste(strsplit(x, "_")[[1]][1], strsplit(x, "_")[[1]][2], sep="_"))
+cnt_data <- cnt_data[, colnames(cnt_data) %in% c("gene_symbol", to_keep)]
 
 for (row_ in rownames(comb_mat)){
   min_cnts_per_sample <- comb_mat[row_, "min_cnts_per_sample"]
@@ -79,15 +96,9 @@ for (row_ in rownames(comb_mat)){
   #########################
   # DATA PREPROCESSING
   #########################
-  # add a column name for sepsis category
-  colnames(sepsis_status_data)[4] <- "sepsis_cat"
-  
-  # merge sepsis status and age/sex data files
-  meta_data <- merge(sepsis_status_data, age_sex_data, by.x="PatientID", by.y="barcode1", all=T)
-  
-  # filter samples with less than 100,000 protein coding genes-associated counts
-  sample_names <- colnames(cnt_data[2:236])
-  samples_to_drop <- sample_names[(cnt_data[1,2:236]<=min_cnts_per_sample)]
+  # filter samples with less than N protein coding genes-associated counts
+  sample_names <- colnames(cnt_data[2:ncol(cnt_data)])
+  samples_to_drop <- sample_names[(cnt_data[1,2:ncol(cnt_data)]<=min_cnts_per_sample)]
   
   cnt_data_filt <- cnt_data[,!(colnames(cnt_data) %in% samples_to_drop)]
   

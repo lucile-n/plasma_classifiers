@@ -43,15 +43,16 @@ from joblib import dump, load
 
 # set paths
 data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/data/"
+paxgene_data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_VALID/data/"
 results_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/results/"
 
 # set params
-mode_ = "load"
+mode_ = "create"
 
 # list parameter values
-min_cnts_per_sample_vals = ['50000', '100000']
+min_cnts_per_sample_vals = ['50000']
 min_non_zero_counts_per_genes_vals = ['20', '30', '40', '50']
-fdr_thresh_vals = ['0.01', '0.05', '0.1']
+fdr_thresh_vals = ['0.1']
 age_sex_model_vals = ['TRUE', 'FALSE']
 
 comb_list = list(product(min_cnts_per_sample_vals, min_non_zero_counts_per_genes_vals, fdr_thresh_vals, age_sex_model_vals))
