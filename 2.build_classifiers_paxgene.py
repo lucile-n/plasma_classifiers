@@ -24,7 +24,7 @@ Output files (results folder):
 import sys
 sys.path.append("/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_VALID/de_analysis")
 #
-from custom_classes import VstTransformer, CustomRFECV, CustomBaggingClassifier, DGEA_filter
+from custom_classes import VstTransformer, CustomRFECV, CustomBaggingClassifier, DGEA_filter, RatiosCalculator
 #
 from itertools import product
 #
@@ -54,9 +54,9 @@ mode_ = "create"
 
 # list parameter values
 # sample filter / gene filter / DE FDR / covariates / ratios / algo
-comb_list = [('50000', '40', '0.1', 'FALSE', 'FALSE', 'xgb'),
-             ('50000', '20', '0.1', 'FALSE', 'FALSE', 'bsvm'),
-             ('50000', '30', '0.1', 'TRUE', 'TRUE', 'bsvm')]
+comb_list = [('50000', '30', '0.1', 'TRUE', 'FALSE', 'xgb'),
+             ('50000', '20', '0.1', 'TRUE', 'FALSE', 'bsvm'),
+             ('50000', '50', '0.1', 'TRUE', 'TRUE', 'xgb')]??
 
 for comb_ in comb_list:
     results_prefix = comb_[0] + "_" + comb_[1] + "_" + comb_[2] + "_" + comb_[3]
@@ -71,68 +71,61 @@ for comb_ in comb_list:
     # DATA LOADING
     #########################
     # paxgene data
-    cnt_data = pd.read_csv(data_path + "raw/" + "EARLI_star_pc_and_lincRNA_genecounts.qc.tsv", index_col=0, sep="\t")
+    cnt_data = pd.read_csv(data_path + "processed/" + "paxgene_cnts.csv", index_col=0)
+
+    # plasma counts data (to use the same genes)
+    plasma_cnt_data = pd.read_csv(data_path + "processed/" + results_prefix + "_cnts.csv", index_col=0)
 
     # group labels
-    paxgene_meta_data = pd.read_csv(
+    meta_data = pd.read_csv(
         paxgene_data_path + "processed/" + "EARLI_metadata_adjudication_IDseq_LPSstudyData_7.5.20.csv")
 
-    meta_data = pd.read_csv(data_path + "processed/" + results_prefix + "_metadata_1vs4.csv", index_col=0)
+    plasma_meta_data = pd.read_csv(data_path + "processed/" + results_prefix + "_metadata_1vs4.csv", index_col=0)
     dgea_results = pd.read_csv(results_path + results_prefix + "_DGEA_results.csv", index_col=0)
 
     #########################
     # DATA PREPROCESSING
     #########################
     # keep only samples of interest (groups 1 and 4, from the metadata file)
-    paxgene_meta_data["EARLI_Barcode"] = ["EARLI_" + str(x) for x in paxgene_meta_data["Barcode"]]
-    paxgene_meta_data = paxgene_meta_data.loc[(paxgene_meta_data.EARLI_Barcode.isin(meta_data.SampleID)), :]
-    cnt_data = cnt_data.loc[:, cnt_data.columns.isin(paxgene_meta_data.HOST_PAXgene_filename)]
+    meta_data["EARLI_Barcode"] = ["EARLI_" + str(x) for x in meta_data["Barcode"]]
+    meta_data = meta_data.loc[(meta_data.EARLI_Barcode.isin(plasma_meta_data.SampleID)), :]
+    cnt_data = cnt_data.loc[:, cnt_data.columns.isin(np.append(meta_data.HOST_PAXgene_filename, "hgnc_symbol"))]
 
     # format count data column and row names
     cnt_data.columns = [x.split("_")[0] + "_" + x.split("_")[1] for x in cnt_data.columns]
-    cnt_data.index = [x.split(".")[0] for x in cnt_data.index]
 
-    # keep only DE genes
-    cnt_data = cnt_data.loc[dgea_results.index.values, :]
-    cnt_data.index = dgea_results.hgnc_symbol.values
+    # keep only pre-filtered genes
+    cnt_data = cnt_data.loc[cnt_data.index.isin(plasma_cnt_data.index), :]
 
-    # drop duplicate gene symbols
-    cnt_data = cnt_data.loc[~cnt_data.index.duplicated(), :]
+    # DE genes indexes
+    name_vars = cnt_data.index.values
+    symbol_vars = cnt_data.hgnc_symbol.values
+    cnt_data = cnt_data.drop("hgnc_symbol", axis=1)
+
+    y = dgea_results.index.values
+    y = [name_vars.tolist().index(x) for x in y]
 
     # filter samples not in the meta_data file and make sure vst_data and meta_data have the same rows order
     cnt_data = cnt_data.T
-    cnt_data = cnt_data.reindex(meta_data.SampleID.values).dropna(axis=0, how='any')
+    cnt_data = cnt_data.reindex(plasma_meta_data.SampleID.values).dropna(axis=0, how='any')
 
     # split data into train and test sets
     cnt_data_train, cnt_data_test, sepsis_cat_train, sepsis_cat_test = train_test_split(cnt_data,
-                                                                                        paxgene_meta_data.Group,
+                                                                                        meta_data.Group,
                                                                                         test_size=0.3,
                                                                                         random_state=123,
-                                                                                        stratify=paxgene_meta_data.Group)
-
-    # store variable labels
-    name_vars = cnt_data_train.columns
+                                                                                        stratify=meta_data.Group)
 
     # store sample ids
     name_samps_train = cnt_data_train.index
     name_samps_test = cnt_data_test.index
 
-    # apply vst to counts
-    vst_transformer = VstTransformer()
-    vst_transformer = vst_transformer.fit(cnt_data_train)
-    vst_data_train = vst_transformer.transform(cnt_data_train)
-    vst_data_test = vst_transformer.transform(cnt_data_test)
-
-    if ratios_:
-        # build ratio objects
-        vst_data_train = build_ratios_df(vst_data_train, name_vars, name_samps_train)
-        vst_data_test = build_ratios_df(vst_data_test, name_vars, name_samps_test)
-    else:
-        # apply standard scaling to vst datasets
-        standard_scaler = StandardScaler()
-        standard_scaler = standard_scaler.fit(vst_data_train)
-        vst_data_train = standard_scaler.transform(vst_data_train)
-        vst_data_test = standard_scaler.transform(vst_data_test)
+    # make and save a vst version of the complete dataset
+    vst_transformer_full = VstTransformer()
+    vst_transformer_full = vst_transformer_full.fit(cnt_data)
+    vst_data_full = vst_transformer_full.transform(cnt_data)
+    vst_data_full = pd.DataFrame(vst_data_full, index=cnt_data.index, columns=cnt_data.columns)
+    vst_data_full.to_csv(data_path + "processed/" + results_prefix + "_paxgene_" + algo_ + "_vsd.csv")
 
     if (algo_ == "xgb"):
         #########################
@@ -143,8 +136,17 @@ for comb_ in comb_list:
                             scoring='roc_auc', step=0.1,
                             min_features_to_select=2, verbose=True, max_features=100)
 
-        # pipeline steps
-        pipe = Pipeline([('rfe', rfecv), ('xgbc', XGBClassifier())])
+        if ratios_:
+            # pipeline steps
+            pipe = Pipeline([('norm', VstTransformer()),
+                     ('filt', DGEA_filter(vars_to_keep=y)),
+                     ('ratios', RatiosCalculator(name_vars=name_vars[y])),
+                     ('rfe', rfecv),
+                     ('xgbc', XGBClassifier())])
+        else:
+            pipe = Pipeline([('norm', VstTransformer()), ('scale', StandardScaler()),
+                      ('filt', DGEA_filter(vars_to_keep=y)), ('rfe', rfecv),
+                      ('xgbc', XGBClassifier())])
 
         # create the parameter grid
         param_grid = {
@@ -167,9 +169,17 @@ for comb_ in comb_list:
                                 cv=5, n_jobs=1, scoring='roc_auc',
                                 step=0.1, min_features_to_select=2, verbose=True, max_features=100)
 
-            # pipeline steps
-            pipe = Pipeline([('rfe', rfecv),
-                             ('bsvmc', CustomBaggingClassifier(base_estimator=LinearSVC(max_iter=10000)))])
+            if ratios_:
+                # pipeline steps
+                pipe = Pipeline([('norm', VstTransformer()),
+                                 ('filt', DGEA_filter(vars_to_keep=y)),
+                                 ('ratios', RatiosCalculator(name_vars=name_vars[y])),
+                                 ('rfe', rfecv),
+                                 ('bsvmc', CustomBaggingClassifier(base_estimator=LinearSVC(max_iter=10000)))])
+            else:
+                pipe = Pipeline([('norm', VstTransformer()), ('scale', StandardScaler()),
+                                 ('filt', DGEA_filter(vars_to_keep=y)), ('rfe', rfecv),
+                                 ('bsvmc', CustomBaggingClassifier(base_estimator=LinearSVC(max_iter=10000)))])
 
             # create the parameter grid
             param_grid = {
@@ -189,7 +199,7 @@ for comb_ in comb_list:
 
     if mode_ == "create":
         # fit the chosen model
-        search.fit(vst_data_train, sepsis_cat_train)
+        search.fit(cnt_data_train, sepsis_cat_train)
         dump(search, results_path + results_prefix + "_paxgene" + "_dump_" + algo_ + "_de_genes.joblib")
     else:
         if mode_ == "load":
@@ -197,16 +207,16 @@ for comb_ in comb_list:
 
     print(search.best_params_)
     print(search.best_score_)
-    print(name_vars[search.best_estimator_.named_steps["rfe"].support_])
+    print(name_vars[y][search.best_estimator_.named_steps["rfe"].support_])
 
     # save list of predictors
-    best_vars = name_vars[search.best_estimator_.named_steps["rfe"].support_]
+    best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
     pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_paxgene" + "_best_vars_" + algo_ + "_de_genes.csv",
                                    header=False,
                                    index=False)
 
     # evaluate on test data
-    probs = search.predict_proba(vst_data_test)
+    probs = search.predict_proba(cnt_data_test)
     probs = probs[:, 1]
     roc_auc = roc_auc_score(sepsis_cat_test, probs)
     print(roc_auc)

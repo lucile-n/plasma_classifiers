@@ -32,16 +32,17 @@ results_path <-
 #########################
 # DATA LOADING - XGB
 #########################
-algo <- "50000_40_FALSE"
-vsd <- read.csv(paste(data_path, "processed/50000_40_0.1_FALSE_vsd.csv", sep = ""), 
+algo_ <- "50000_30_0.1_TRUE"
+
+vsd <- read.csv(paste(data_path, paste("processed/", paste(algo_, "_vsd.csv", sep=""), sep = ""), sep = ""), 
                 row.names = 1)
-mapping_data <- read.csv(paste(data_path, "processed/50000_40_0.1_FALSE_cnts.csv", sep = ""),
+mapping_data <- read.csv(paste(data_path, paste("processed/", paste(algo_, "_cnts.csv", sep=""), sep = ""), sep = ""), 
                          row.names = 1)
-meta_data <- read.csv(paste(data_path, "processed/50000_40_0.1_FALSE_metadata_1vs4.csv", sep = ""),
+meta_data <- read.csv(paste(data_path, paste("processed/", paste(algo_, "_metadata_1vs4.csv", sep=""), sep = ""), sep = ""), 
                       row.names = 1)
 
-best_vars <- read.csv(paste(results_path, "50000_40_0.1_FALSE_best_vars_xgb_de_genes.csv", sep = ""),
-                         header = FALSE)
+best_vars <- read.csv(paste(results_path, paste(algo_, "_best_vars_xgb_de_genes.csv", sep = ""), sep = ""), 
+                      header = FALSE)
 
 #########################
 # DATA PREPROCESSING - XGB
@@ -54,7 +55,7 @@ mapping_data <- mapping_data[mapping_data$hgnc_symbol != "", , drop = F]
 # extract symbols 
 best_vars_symbols <- c()
 for (gene_ in best_vars$V1){
-  best_vars_symbols[rownames(mapping_data[mapping_data$hgnc_symbol==gene_, ,drop=F])] <- gene_
+  best_vars_symbols[gene_] <- mapping_data[gene_,]
 }
 
 # add barcodes as row names
@@ -74,8 +75,8 @@ rownames(d) <- best_vars_symbols[rownames(d)]
 d_melt <- melt(as.matrix(d))
 d_melt$sepsis_cat <- meta_data[d_melt$Var2, "sepsis_cat"]
 
-pdf(paste(results_path, paste(algo, "profile_plot.pdf", sep = "_"), sep = ""),
-    width = 8, height = 5)
+pdf(paste(results_path, paste(algo_, "xgb_profile_plot.pdf", sep = "_"), sep = ""),
+    width = 10, height = 6)
 ggplot(d_melt, aes(x=Var1, y=value, group=Var2, color=sepsis_cat)) +
   geom_line() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
@@ -86,8 +87,8 @@ annot_data <- meta_data[, "sepsis_cat", drop = F]
 annot_data$sepsis_cat <- as.factor(annot_data$sepsis_cat)
 annot_data$sepsis_cat <- relevel(annot_data$sepsis_cat, ref="4_NO_Sepsis")
 
-pdf(paste(results_path, paste(algo, "hm.pdf", sep = "_"), sep = ""),
-    width = 8, height = 5)
+pdf(paste(results_path, paste(algo_, "xgb_hm.pdf", sep = "_"), sep = ""),
+    width = 9, height = 10)
 pheatmap(d, annotation_col = annot_data, scale = "none",
          show_colnames = FALSE, cutree_cols = 2)
 dev.off()
@@ -95,16 +96,17 @@ dev.off()
 #########################
 # DATA LOADING - BSVM
 #########################
-algo <- "50000_20_FALSE"
-vsd <- read.csv(paste(data_path, "processed/50000_20_0.1_FALSE_vsd.csv", sep = ""), 
+algo_ <- "50000_20_0.1_TRUE"
+
+vsd <- read.csv(paste(data_path, paste("processed/", paste(algo_, "_vsd.csv", sep=""), sep = ""), sep = ""), 
                 row.names = 1)
-mapping_data <- read.csv(paste(data_path, "processed/50000_20_0.1_FALSE_cnts.csv", sep = ""),
+mapping_data <- read.csv(paste(data_path, paste("processed/", paste(algo_, "_cnts.csv", sep=""), sep = ""), sep = ""), 
                          row.names = 1)
-meta_data <- read.csv(paste(data_path, "processed/50000_20_0.1_FALSE_metadata_1vs4.csv", sep = ""),
+meta_data <- read.csv(paste(data_path, paste("processed/", paste(algo_, "_metadata_1vs4.csv", sep=""), sep = ""), sep = ""), 
                       row.names = 1)
 
-best_vars <- read.csv(paste(results_path, "50000_20_0.1_FALSE_best_vars_bsvm_de_genes.csv", sep = ""),
-                          header = FALSE)
+best_vars <- read.csv(paste(results_path, paste(algo_, "_best_vars_bsvm_de_genes.csv", sep=""), sep = ""), 
+                      header = FALSE)
 
 #########################
 # DATA PREPROCESSING - BSVM
@@ -117,7 +119,7 @@ mapping_data <- mapping_data[mapping_data$hgnc_symbol != "", , drop = F]
 # extract symbols 
 best_vars_symbols <- c()
 for (gene_ in best_vars$V1){
-  best_vars_symbols[rownames(mapping_data[mapping_data$hgnc_symbol==gene_, ,drop=F])] <- gene_
+  best_vars_symbols[gene_] <- mapping_data[gene_,]
 }
 
 # add barcodes as row names
@@ -137,10 +139,11 @@ rownames(d) <- best_vars_symbols[rownames(d)]
 d_melt <- melt(as.matrix(d))
 d_melt$sepsis_cat <- meta_data[d_melt$Var2, "sepsis_cat"]
 
-pdf(paste(results_path, paste(algo, "profile_plot.pdf", sep = "_"), sep = ""),
-    width = 8, height = 5)
+pdf(paste(results_path, paste(algo_, "bsvm_profile_plot.pdf", sep = "_"), sep = ""),
+    width = 10, height = 6)
 ggplot(d_melt, aes(x=Var1, y=value, group=Var2, color=sepsis_cat)) +
-  geom_line()
+  geom_line() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 dev.off()
 
 # heatmap
@@ -148,8 +151,8 @@ annot_data <- meta_data[, "sepsis_cat", drop = F]
 annot_data$sepsis_cat <- as.factor(annot_data$sepsis_cat)
 annot_data$sepsis_cat <- relevel(annot_data$sepsis_cat, ref="4_NO_Sepsis")
 
-pdf(paste(results_path, paste(algo, "hm.pdf", sep = "_"), sep = ""),
-    width = 8, height = 5)
+pdf(paste(results_path, paste(algo_, "bsvm_hm.pdf", sep = "_"), sep = ""),
+    width = 9, height = 10)
 pheatmap(d, annotation_col = annot_data, scale = "none",
          show_colnames = FALSE, cutree_cols = 2)
 dev.off()

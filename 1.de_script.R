@@ -27,6 +27,8 @@ setwd("/Users/lucileneyton/OneDrive\ -\ University\ of\ California,\ San\ Franci
 library(DESeq2) # 1.28.1
 library(readxl) # 1.3.1
 library(ggfortify) # 0.4.11
+library(ggrepel) # 0.8.2
+library(biomaRt) # 2.44.4
 
 # set paths
 data_path <- 
@@ -79,9 +81,47 @@ meta_data <- merge(sepsis_status_data, age_sex_data, by.x="PatientID", by.y="bar
 # read-in paxgene data to keep only samples in common
 paxgene_data <- read.table(paxgene_data_path, row.names = 1, sep="\t")
 
+# keep only genes in common between the plasma and PAXgene samples
+tmp_paxgene_rows <- sapply(rownames(paxgene_data), function(x) strsplit(x, ".", fixed = TRUE)[[1]][1])
+genes_in_common <- intersect(rownames(cnt_data), tmp_paxgene_rows)
+
+# "" is for the total counts on the full original dataset
+cnt_data <- cnt_data[rownames(cnt_data) %in% c("", genes_in_common), ]
+paxgene_data <- paxgene_data[tmp_paxgene_rows %in% genes_in_common, ]
+
 # filter count data to only keep samples with a PAXgene tube
+cnt_data_all <- cnt_data
 to_keep <- sapply(colnames(paxgene_data), function(x) paste(strsplit(x, "_")[[1]][1], strsplit(x, "_")[[1]][2], sep="_"))
-cnt_data <- cnt_data[, colnames(cnt_data) %in% c("gene_symbol", to_keep)]
+cnt_data <- cnt_data[, colnames(cnt_data) %in% to_keep]
+
+# drop duplicated ENSG identifiers
+paxgene_data <- paxgene_data[!grepl(pattern = ".*(\\.).*(\\.).*", rownames(paxgene_data)), ]
+rownames(paxgene_data) <- sapply(rownames(paxgene_data), function(x) strsplit(x, "\\.")[[1]][1])
+
+# all ENSG genes
+all_ensg_genes <- c(union(rownames(cnt_data), rownames(paxgene_data)))
+
+# extract gene symbols for plasma and paxgene data
+ensembl <- useEnsembl(
+  biomart = "ensembl", dataset = "hsapiens_gene_ensembl",
+  version = 103
+) # version 103
+ensembl_res <- getBM(
+  values = all_ensg_genes,
+  filters = "ensembl_gene_id",
+  attributes = c("ensembl_gene_id", "hgnc_symbol"), 
+  mart = ensembl
+)
+ensembl_res <- ensembl_res[!duplicated(ensembl_res$ensembl_gene_id), ]
+rownames(ensembl_res) <- ensembl_res$ensembl_gene_id
+
+# add gene symbols as columns
+cnt_data$hgnc_symbol <- ensembl_res[rownames(cnt_data), "hgnc_symbol"]
+paxgene_data$hgnc_symbol <- ensembl_res[rownames(paxgene_data), "hgnc_symbol"]
+cnt_data_all$hgnc_symbol <- ensembl_res[rownames(cnt_data_all), "hgnc_symbol"]
+
+# save paxgene data
+write.csv(paxgene_data, paste(data_path, paste("processed/paxgene_cnts.csv", sep=""), sep = ""))
 
 for (row_ in rownames(comb_mat)){
   min_cnts_per_sample <- comb_mat[row_, "min_cnts_per_sample"]
@@ -100,23 +140,28 @@ for (row_ in rownames(comb_mat)){
   sample_names <- colnames(cnt_data[2:ncol(cnt_data)])
   samples_to_drop <- sample_names[(cnt_data[1,2:ncol(cnt_data)]<=min_cnts_per_sample)]
   
-  cnt_data_filt <- cnt_data[,!(colnames(cnt_data) %in% samples_to_drop)]
+  cnt_data_filt <- cnt_data[, !(colnames(cnt_data) %in% samples_to_drop)]
   
   # keep only the samples of interest
   selected_samples <- meta_data[meta_data$sepsis_cat %in% c("1_Sepsis+BldCx+", "4_NO_Sepsis"), "SampleID"]
   
-  cnt_data_filt <- cnt_data_filt[,colnames(cnt_data_filt) %in% c("gene_symbol", selected_samples)]
+  cnt_data_filt <- cnt_data_filt[, colnames(cnt_data_filt) %in% c("hgnc_symbol", selected_samples)]
+  cnt_data_low <- cnt_data_all[, colnames(cnt_data_all) %in% c("hgnc_symbol", intersect(selected_samples, samples_to_drop))]
   
   # filter genes present in only some of the samples
-  gene_names <- rownames(cnt_data_filt[2:nrow(cnt_data_filt),2:ncol(cnt_data_filt)])
-  gene_data <- cnt_data_filt[2:nrow(cnt_data_filt),2:ncol(cnt_data_filt)]
+  gene_names <- rownames(cnt_data_filt[2:nrow(cnt_data_filt), 1:(ncol(cnt_data_filt)-1)])
+  gene_data <- cnt_data_filt[2:nrow(cnt_data_filt), 1:(ncol(cnt_data_filt)-1)]
   genes_to_drop <- gene_names[apply(gene_data, 1, function(x) sum(x>0))/(ncol(cnt_data_filt)-1)<(min_non_zero_counts_per_genes/100)]
   
   cnt_data_filt <- cnt_data_filt[!(rownames(cnt_data_filt) %in% genes_to_drop), ]
+  cnt_data_low <- cnt_data_low[!(rownames(cnt_data_low) %in% genes_to_drop), ]
     
   # filter metadata make sure our variable of interest is a factor
   meta_data_filt <- meta_data[meta_data$SampleID %in% colnames(cnt_data_filt),]
   meta_data_filt$sepsis_cat <- as.factor(meta_data_filt$sepsis_cat)
+  
+  meta_data_low <- meta_data[meta_data$SampleID %in% colnames(cnt_data_low),]
+  meta_data_low$sepsis_cat <- as.factor(meta_data_low$sepsis_cat)
 
   # replace missing age values by average for that subgroup
   meta_data_filt$age[is.na(meta_data_filt$age) & meta_data_filt$sepsis_cat=="1_Sepsis+BldCx+"] <- 
@@ -124,20 +169,36 @@ for (row_ in rownames(comb_mat)){
   meta_data_filt$age[is.na(meta_data_filt$age) & meta_data_filt$sepsis_cat=="4_NO_Sepsis"] <- 
     mean(meta_data_filt$age[(!is.na(meta_data_filt$age)) & meta_data_filt$sepsis_cat=="4_NO_Sepsis"])
   
+  meta_data_low$age[is.na(meta_data_low$age) & meta_data_low$sepsis_cat=="1_Sepsis+BldCx+"] <- 
+    mean(meta_data_low$age[(!is.na(meta_data_low$age)) & meta_data_low$sepsis_cat=="1_Sepsis+BldCx+"])
+  meta_data_low$age[is.na(meta_data_low$age) & meta_data_low$sepsis_cat=="4_NO_Sepsis"] <- 
+    mean(meta_data_low$age[(!is.na(meta_data_low$age)) & meta_data_low$sepsis_cat=="4_NO_Sepsis"])
+  
   # standard scaling on Age
   meta_data_filt$age_scaled <- scale(meta_data_filt$age)
+  meta_data_low$age_scaled <- scale(meta_data_low$age)
   
   # make sure gender is a factor
   meta_data_filt$gender <- as.factor(meta_data_filt$gender)
+  meta_data_low$gender <- as.factor(meta_data_low$gender)
   
   # drop first row and column and store gene symbols
   cnt_data_filt <- cnt_data_filt[2:nrow(cnt_data_filt),]
-  gene_symbols <- cnt_data_filt$gene_symbol
-  cnt_data_filt <- cnt_data_filt[,2:ncol(cnt_data_filt)]
+  gene_symbols <- cnt_data_filt$hgnc_symbol
+  cnt_data_filt <- cnt_data_filt[,1:(ncol(cnt_data_filt)-1)]
+  
+  cnt_data_low <- cnt_data_low[2:nrow(cnt_data_low),]
+  cnt_data_low <- cnt_data_low[,1:(ncol(cnt_data_low)-1)]
   
   cnt_data_filt_symbols <- cnt_data_filt
   cnt_data_filt_symbols$hgnc_symbol <- gene_symbols
   write.csv(cnt_data_filt_symbols, paste(data_path, paste("processed/", paste(results_prefix, "cnts.csv", sep="_"), sep=""), sep = ""))
+  
+  cnt_data_low_symbols <- cnt_data_low
+  cnt_data_low_symbols$hgnc_symbol <- gene_symbols
+  write.csv(cnt_data_low_symbols, paste(data_path, paste("processed/", paste(results_prefix, "cnts_low.csv", sep="_"), sep=""), sep = ""))
+  
+  write.csv(meta_data_low, paste(data_path, paste("processed/", paste(results_prefix, "metadata_1vs4_low.csv", sep="_"), sep=""), sep = ""))
   
   #########################
   # DE ANALYSIS

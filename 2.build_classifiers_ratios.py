@@ -24,7 +24,7 @@ Output files (results folder):
 import sys
 sys.path.append("/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_VALID/de_analysis")
 #
-from custom_classes import VstTransformer, CustomRFECV, CustomBaggingClassifier, DGEA_filter
+from custom_classes import VstTransformer, CustomRFECV, CustomBaggingClassifier, DGEA_filter, RatiosCalculator
 #
 from itertools import product
 #
@@ -46,28 +46,7 @@ from joblib import dump, load
 
 # set paths
 data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/data/"
-paxgene_data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_VALID/data/"
 results_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/results/"
-
-# define functions
-# build ratio object
-def build_ratios_df(expr_data, name_vars, name_samps):
-    # convert numpy array to df
-    expr_data = pd.DataFrame(expr_data, index=name_samps, columns=name_vars)
-
-    # cols should be = ncol! / (2! * (ncol-2)!)
-    ratios_df = pd.DataFrame(index=name_samps)
-    for gene_ind_1 in range(0, expr_data.shape[1]):
-        for gene_ind_2 in range(0, expr_data.shape[1]):
-            if gene_ind_1 < gene_ind_2:
-                gene_data_1 = expr_data[name_vars[gene_ind_1]]
-                gene_data_2 = expr_data[name_vars[gene_ind_2]]
-
-                gene_ratio = gene_data_1 / gene_data_2
-
-                ratios_df[name_vars[gene_ind_1] + "/" + name_vars[gene_ind_2]] = gene_ratio
-
-    return ratios_df
 
 # set params
 mode_ = "create"
@@ -93,47 +72,43 @@ for comb_ in comb_list:
     # DATA LOADING
     #########################
     cnt_data = pd.read_csv(data_path + "processed/" + results_prefix + "_cnts.csv", index_col=0)
+    cnt_data_low = pd.read_csv(data_path + "processed/" + results_prefix + "_cnts_low.csv", index_col=0)
+
     meta_data = pd.read_csv(data_path + "processed/" + results_prefix + "_metadata_1vs4.csv", index_col=0)
+    meta_data_low = pd.read_csv(data_path + "processed/" + results_prefix + "_metadata_1vs4_low.csv", index_col=0)
+
     dgea_results = pd.read_csv(results_path + results_prefix + "_DGEA_results.csv", index_col=0)
 
     #########################
     # DATA PREPROCESSING
     #########################
-    # keep only DE genes
-    cnt_data = cnt_data.loc[cnt_data.hgnc_symbol.isin(dgea_results.hgnc_symbol.values), :]
+    # DE genes indexes
+    name_vars = cnt_data.index.values
+    symbol_vars = cnt_data.hgnc_symbol.values
+    y = dgea_results.index.values
+    y = dgea_results.index.values
+    y = [name_vars.tolist().index(x) for x in y]
 
-    cnt_data.index = cnt_data.hgnc_symbol
-    cnt_data = cnt_data.loc[dgea_results.hgnc_symbol.values, :]
+    # drop gene symbols
     cnt_data = cnt_data.drop("hgnc_symbol", axis=1)
-
-    # drop duplicate gene symbols
-    cnt_data = cnt_data.loc[~cnt_data.index.duplicated(), :]
+    cnt_data_low = cnt_data_low.drop("hgnc_symbol", axis=1)
 
     # filter samples not in the meta_data file and make sure vst_data and meta_data have the same rows order
     cnt_data = cnt_data.T
     cnt_data = cnt_data.reindex(meta_data.SampleID.values).dropna(axis=0, how='any')
+
+    cnt_data_low = cnt_data_low.T
+    cnt_data_low = cnt_data_low.reindex(meta_data_low.SampleID.values).dropna(axis=0, how='any')
 
     # split data into train and test sets
     cnt_data_train, cnt_data_test, sepsis_cat_train, sepsis_cat_test = train_test_split(cnt_data, meta_data.sepsis_cat,
                                                                                         test_size=0.3, random_state=123,
                                                                                         stratify=meta_data.sepsis_cat)
 
-    # store variable labels
-    name_vars = cnt_data_train.columns
-
     # store sample ids
     name_samps_train = cnt_data_train.index
     name_samps_test = cnt_data_test.index
-
-    # apply vst to counts
-    vst_transformer = VstTransformer()
-    vst_transformer = vst_transformer.fit(cnt_data_train)
-    vst_data_train = vst_transformer.transform(cnt_data_train)
-    vst_data_test = vst_transformer.transform(cnt_data_test)
-
-    # build ratio objects
-    vst_data_ratios_train = build_ratios_df(vst_data_train, name_vars, name_samps_train)
-    vst_data_ratios_test = build_ratios_df(vst_data_test, name_vars, name_samps_test)
+    name_samps_low = cnt_data_low.index
 
     #########################
     # XGBOOST - CV within a CV for grid search and RFE as part of a pipeline
@@ -143,7 +118,11 @@ for comb_ in comb_list:
                         step=0.1, min_features_to_select=2, verbose=True, max_features=100)
 
     # pipeline steps
-    pipe = Pipeline([('rfe', rfecv), ('xgbc', XGBClassifier())])
+    pipe = Pipeline([('norm', VstTransformer()),
+                     ('filt', DGEA_filter(vars_to_keep=y)),
+                     ('ratios', RatiosCalculator(name_vars=name_vars[y])),
+                     ('rfe', rfecv),
+                     ('xgbc', XGBClassifier())])
 
     # create the parameter grid
     param_grid = {
@@ -160,7 +139,7 @@ for comb_ in comb_list:
 
     if mode_ == "create":
         # fit the chosen model
-        search.fit(vst_data_ratios_train, sepsis_cat_train)
+        search.fit(cnt_data_train, sepsis_cat_train)
         dump(search, results_path + results_prefix + "_ratios" + "_dump_xgb_de_genes.joblib")
     else:
         if mode_ == "load":
@@ -168,17 +147,23 @@ for comb_ in comb_list:
 
     print(search.best_params_)
     print(search.best_score_)
-    print(vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_])
+    print(search.best_estimator_.named_steps["ratios"].name_ratios[search.best_estimator_.named_steps["rfe"].support_])
 
     # save list of predictors
-    best_vars = vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_]
+    best_vars = search.best_estimator_.named_steps["ratios"].name_ratios[search.best_estimator_.named_steps["rfe"].support_]
     pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_ratios" + "_best_vars_xgb_de_genes.csv", header=False,
                                    index=False)
 
     # evaluate on test data
-    probs = search.predict_proba(vst_data_ratios_test)
+    probs = search.predict_proba(cnt_data_test)
     probs = probs[:, 1]
     roc_auc_xgb = roc_auc_score(sepsis_cat_test, probs)
+    print(roc_auc_xgb)
+
+    # evaluate on low count test set
+    probs = search.predict_proba(cnt_data_low)
+    probs = probs[:, 1]
+    roc_auc_xgb = roc_auc_score(meta_data_low.sepsis_cat, probs)
     print(roc_auc_xgb)
 
     #########################
@@ -190,7 +175,10 @@ for comb_ in comb_list:
                         step=0.1, min_features_to_select=2, verbose=True, max_features=100)
 
     # pipeline steps
-    pipe = Pipeline([('rfe', rfecv),
+    pipe = Pipeline([('norm', VstTransformer()),
+                     ('filt', DGEA_filter(vars_to_keep=y)),
+                     ('ratios', RatiosCalculator(name_vars=name_vars[y])),
+                     ('rfe', rfecv),
                      ('bsvmc', CustomBaggingClassifier(base_estimator=LinearSVC(max_iter=10000)))])
 
     # create the parameter grid
@@ -206,7 +194,7 @@ for comb_ in comb_list:
 
     if mode_ == "create":
         # fit the chosen model
-        search.fit(vst_data_ratios_train, sepsis_cat_train)
+        search.fit(cnt_data_train, sepsis_cat_train)
         dump(search, results_path + results_prefix + "_ratios" + "_dump_bsvm_de_genes.joblib")
     else:
         if mode_ == "load":
@@ -214,15 +202,21 @@ for comb_ in comb_list:
 
     print(search.best_params_)
     print(search.best_score_)
-    print(vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_])
+    print(search.best_estimator_.named_steps["ratios"].name_ratios[search.best_estimator_.named_steps["rfe"].support_])
 
     # save list of predictors
-    best_vars = vst_data_ratios_train.columns[search.best_estimator_.named_steps["rfe"].support_]
+    best_vars = search.best_estimator_.named_steps["ratios"].name_ratios[search.best_estimator_.named_steps["rfe"].support_]
     pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_ratios" + "_best_vars_bsvm_de_genes.csv", header=False,
                                    index=False)
 
     # evaluate on test data
-    probs = search.predict_proba(vst_data_ratios_test)
+    probs = search.predict_proba(cnt_data_test)
     probs = probs[:, 1]
     roc_auc_bsvm = roc_auc_score(sepsis_cat_test, probs)
+    print(roc_auc_bsvm)
+
+    # evaluate on low count test set
+    probs = search.predict_proba(cnt_data_low)
+    probs = probs[:, 1]
+    roc_auc_bsvm = roc_auc_score(meta_data_low.sepsis_cat, probs)
     print(roc_auc_bsvm)

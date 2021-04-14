@@ -43,11 +43,10 @@ from joblib import dump, load
 
 # set paths
 data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/data/"
-paxgene_data_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_VALID/data/"
 results_path = "/Users/lucileneyton/OneDrive - University of California, San Francisco/UCSF/EARLI_plasma/results/"
 
 # set params
-mode_ = "create"
+mode_ = "load"
 
 # list parameter values
 min_cnts_per_sample_vals = ['50000']
@@ -68,48 +67,41 @@ for comb_ in comb_list:
     # DATA LOADING
     #########################
     cnt_data = pd.read_csv(data_path + "processed/" + results_prefix + "_cnts.csv", index_col=0)
+    cnt_data_low = pd.read_csv(data_path + "processed/" + results_prefix + "_cnts_low.csv", index_col=0)
+
     meta_data = pd.read_csv(data_path + "processed/" + results_prefix + "_metadata_1vs4.csv", index_col=0)
+    meta_data_low = pd.read_csv(data_path + "processed/" + results_prefix + "_metadata_1vs4_low.csv", index_col=0)
+
     dgea_results = pd.read_csv(results_path + results_prefix + "_DGEA_results.csv", index_col=0)
 
     #########################
     # DATA PREPROCESSING
     #########################
-    # keep only DE genes
-    cnt_data = cnt_data.loc[cnt_data.hgnc_symbol.isin(dgea_results.hgnc_symbol.values), :]
-    cnt_data.index = cnt_data.hgnc_symbol
-    cnt_data = cnt_data.loc[dgea_results.hgnc_symbol.values, :]
+    # DE genes indexes
+    name_vars = cnt_data.index.values
+    symbol_vars = cnt_data.hgnc_symbol.values
+    y = dgea_results.index.values
+    y = [name_vars.tolist().index(x) for x in y]
+
+    # drop gene symbols
     cnt_data = cnt_data.drop("hgnc_symbol", axis=1)
+    cnt_data_low = cnt_data_low.drop("hgnc_symbol", axis=1)
 
-    # drop duplicate gene symbols
-    cnt_data = cnt_data.loc[~cnt_data.index.duplicated(), :]
-
-    # filter samples not in the meta_data file and make sure vst_data and meta_data have the same rows order
+    # filter samples not in the meta_data file and make sure cnt_data and meta_data have the same rows order
     cnt_data = cnt_data.T
     cnt_data = cnt_data.reindex(meta_data.SampleID.values).dropna(axis=0, how='any')
+
+    cnt_data_low = cnt_data_low.T
+    cnt_data_low = cnt_data_low.reindex(meta_data_low.SampleID.values).dropna(axis=0, how='any')
 
     # split data into train and test sets
     cnt_data_train, cnt_data_test, sepsis_cat_train, sepsis_cat_test = train_test_split(cnt_data, meta_data.sepsis_cat,
                                                                                         test_size=0.3, random_state=123,
                                                                                         stratify=meta_data.sepsis_cat)
 
-    # store variable labels
-    name_vars = cnt_data_train.columns
-
     # store sample ids
     name_samps_train = cnt_data_train.index
     name_samps_test = cnt_data_test.index
-
-    # apply vst to counts
-    vst_transformer = VstTransformer()
-    vst_transformer = vst_transformer.fit(cnt_data_train)
-    vst_data_train = vst_transformer.transform(cnt_data_train)
-    vst_data_test = vst_transformer.transform(cnt_data_test)
-
-    # apply standard scaling to vst datasets
-    standard_scaler = StandardScaler()
-    standard_scaler = standard_scaler.fit(vst_data_train)
-    vst_data_train = standard_scaler.transform(vst_data_train)
-    vst_data_test = standard_scaler.transform(vst_data_test)
 
     #########################
     # XGBOOST - CV within a CV for grid search and RFE as part of a pipeline
@@ -119,7 +111,9 @@ for comb_ in comb_list:
                         min_features_to_select=2, verbose=True, max_features=100)
 
     # pipeline steps
-    pipe = Pipeline([('rfe', rfecv), ('xgbc', XGBClassifier())])
+    pipe = Pipeline([('norm', VstTransformer()), ('scale', StandardScaler()),
+              ('filt', DGEA_filter(vars_to_keep=y)), ('rfe', rfecv),
+              ('xgbc', XGBClassifier())])
 
     # create the parameter grid
     param_grid = {
@@ -136,7 +130,7 @@ for comb_ in comb_list:
 
     if mode_ == "create":
         # fit the chosen model
-        search.fit(vst_data_train, sepsis_cat_train)
+        search.fit(cnt_data_train, sepsis_cat_train)
         dump(search, results_path + results_prefix + "_dump_xgb_de_genes.joblib")
     else:
         if mode_ == "load":
@@ -144,17 +138,23 @@ for comb_ in comb_list:
 
     print(search.best_params_)
     print(search.best_score_)
-    print(name_vars[search.best_estimator_.named_steps["rfe"].support_])
+    print(name_vars[y][search.best_estimator_.named_steps["rfe"].support_])
 
     # save list of predictors
-    best_vars = name_vars[search.best_estimator_.named_steps["rfe"].support_]
+    best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
     pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_best_vars_xgb_de_genes.csv", header=False,
                                    index=False)
 
     # evaluate on test data
-    probs = search.predict_proba(vst_data_test)
+    probs = search.predict_proba(cnt_data_test)
     probs = probs[:, 1]
     roc_auc_xgb = roc_auc_score(sepsis_cat_test, probs)
+    print(roc_auc_xgb)
+
+    # evaluate on low count test set
+    probs = search.predict_proba(cnt_data_low)
+    probs = probs[:, 1]
+    roc_auc_xgb = roc_auc_score(meta_data_low.sepsis_cat, probs)
     print(roc_auc_xgb)
 
     #########################
@@ -166,8 +166,9 @@ for comb_ in comb_list:
                         step=0.1, min_features_to_select=2, verbose=True, max_features=100)
 
     # pipeline steps
-    pipe = Pipeline([('rfe', rfecv),
-                     ('bsvmc', CustomBaggingClassifier(base_estimator=LinearSVC(max_iter=10000)))])
+    pipe = Pipeline([('norm', VstTransformer()), ('scale', StandardScaler()),
+              ('filt', DGEA_filter(vars_to_keep=y)), ('rfe', rfecv),
+              ('bsvmc', CustomBaggingClassifier(base_estimator=LinearSVC(max_iter=10000)))])
 
     # create the parameter grid
     param_grid = {
@@ -182,7 +183,7 @@ for comb_ in comb_list:
 
     if mode_ == "create":
         # fit the chosen model
-        search.fit(vst_data_train, sepsis_cat_train)
+        search.fit(cnt_data_train, sepsis_cat_train)
         dump(search, results_path + results_prefix + "_dump_bsvm_de_genes.joblib")
     else:
         if mode_ == "load":
@@ -190,15 +191,21 @@ for comb_ in comb_list:
 
     print(search.best_params_)
     print(search.best_score_)
-    print(name_vars[search.best_estimator_.named_steps["rfe"].support_])
+    print(name_vars[y][search.best_estimator_.named_steps["rfe"].support_])
 
     # save list of predictors
-    best_vars = name_vars[search.best_estimator_.named_steps["rfe"].support_]
+    best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
     pd.DataFrame(best_vars).to_csv(results_path + results_prefix + "_best_vars_bsvm_de_genes.csv", header=False,
                                    index=False)
 
     # evaluate on test data
-    probs = search.predict_proba(vst_data_test)
+    probs = search.predict_proba(cnt_data_test)
     probs = probs[:, 1]
     roc_auc_bsvm = roc_auc_score(sepsis_cat_test, probs)
+    print(roc_auc_bsvm)
+
+    # evaluate on low count test set
+    probs = search.predict_proba(cnt_data_low)
+    probs = probs[:, 1]
+    roc_auc_bsvm = roc_auc_score(meta_data_low.sepsis_cat, probs)
     print(roc_auc_bsvm)
