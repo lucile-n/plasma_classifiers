@@ -30,7 +30,7 @@ import numpy as np
 # 1.1.3
 import pandas as pd
 # 0.23.2
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import roc_auc_score, roc_curve, plot_roc_curve
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -232,6 +232,12 @@ for comb_ in comb_list:
         if data_from_ == "plasma":
             target_data = plasma_cnt_data
 
+    # split data to have a held-out set
+    cnt_data_train_full, cnt_data_test_full, \
+    sepsis_cat_train_full, sepsis_cat_test_full = train_test_split(target_data, meta_data_tmp.sepsis_cat,
+                                                         test_size=0.3, random_state=123,
+                                                         stratify=meta_data_tmp.sepsis_cat)
+
     #########################
     # FOR EACH FOLD
     #########################
@@ -256,9 +262,9 @@ for comb_ in comb_list:
 
         # split data into train and test sets
         cnt_data_train, cnt_data_test, \
-            sepsis_cat_train, sepsis_cat_test = train_test_split(target_data, meta_data_tmp.sepsis_cat,
+            sepsis_cat_train, sepsis_cat_test = train_test_split(cnt_data_train_full, sepsis_cat_train_full,
                                                                  test_size=0.3,
-                                                                 stratify=meta_data_tmp.sepsis_cat)
+                                                                 stratify=sepsis_cat_train_full)
 
         # store sample ids
         name_samps_train = cnt_data_train.index
@@ -287,6 +293,9 @@ for comb_ in comb_list:
             else:
                 if mode_ == "load":
                     search = load(results_path + output_prefix + "_" + fold_id + "_dump.joblib")
+
+            best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
+
         folds_aucroc_train.append({"labels": sepsis_cat_train,
                                    "probs": search.predict_proba(cnt_data_train)[:, 1],
                                    "classes": search.classes_[1]})
@@ -295,6 +304,7 @@ for comb_ in comb_list:
         print(search.best_params_)
         print(search.best_score_)
 
+        print(len(name_vars[y][search.best_estimator_.named_steps["rfe"].support_]))
         print(name_vars[y][search.best_estimator_.named_steps["rfe"].support_])
 
         # evaluate on test data
@@ -312,9 +322,39 @@ for comb_ in comb_list:
             probs = probs[:, 1]
             roc_auc = roc_auc_score(meta_data_tmp_low.sepsis_cat, probs)
             print(roc_auc)
-            folds_aucroc_test2.append({"labels": meta_data.loc[meta_data.EARLI_Barcode.isin(paxgene_cnt_data_low.index.values), :].Group,
+            folds_aucroc_test2.append({"labels": meta_data_tmp_low.sepsis_cat,
                                        "probs": probs,
                                        "classes": search.classes_[1]})
+
+            # test on two external datasets with a good feature overlap
+            # filter to keep only genes of interest
+            gse28750_cnt_data_tmp = gse28750_cnt_data.loc[:, gse28750_cnt_data.columns.isin(best_vars)]
+            gse9960_cnt_data_tmp = gse9960_cnt_data.loc[:, gse9960_cnt_data.columns.isin(best_vars)]
+
+            if algo_ == "xgb":
+                best_estimator = search.best_estimator_.named_steps["xgbc"]
+            else:
+                if algo_ == "bsvm":
+                    best_estimator = search.best_estimator_.named_steps["bsvmc"]
+
+            # scale data
+            ext_scaler = StandardScaler()
+
+            gse28750_cnt_data_scaled_tmp = ext_scaler.fit_transform(gse28750_cnt_data_tmp)
+            gse9960_cnt_data_scaled_tmp = ext_scaler.fit_transform(gse9960_cnt_data_tmp)
+
+            # apply classifiers
+            if gse28750_cnt_data_scaled_tmp.shape[1] == len(best_vars):
+                probs = best_estimator.predict_proba(gse28750_cnt_data_scaled_tmp)
+                probs = probs[:, 1]
+                roc_auc = roc_auc_score(gse28750_meta_data.sepsis_cat, probs)
+                print(roc_auc)
+
+            if gse9960_cnt_data_scaled_tmp.shape[1] == len(best_vars):
+                probs = best_estimator.predict_proba(gse9960_cnt_data_scaled_tmp)
+                probs = probs[:, 1]
+                roc_auc = roc_auc_score(gse9960_meta_data.sepsis_cat, probs)
+                print(roc_auc)
 
         else:
             if data_from_ == "plasma":
@@ -324,13 +364,15 @@ for comb_ in comb_list:
                 roc_auc = roc_auc_score(meta_data_tmp_low.sepsis_cat, probs)
                 print(roc_auc)
                 folds_aucroc_test2.append(
-                    {"labels": meta_data.loc[meta_data.EARLI_Barcode.isin(plasma_cnt_data_low.index.values), :].Group,
+                    {"labels": meta_data_tmp_low.sepsis_cat,
                      "probs": probs,
                      "classes": search.classes_[1]})
 
     # ROC curves
     plt.figure()
     for i in folds_id:
+        fold_id = str(i + 1)
+
         # plot ROC curve for
         fpr_train, tpr_train, _ = roc_curve(folds_aucroc_train[i]["labels"],
                                             folds_aucroc_train[i]["probs"],
@@ -349,6 +391,8 @@ for comb_ in comb_list:
     # ROC curves
     plt.figure()
     for i in folds_id:
+        fold_id = str(i + 1)
+
         # plot ROC curve for
         fpr_train, tpr_train, _ = roc_curve(folds_aucroc_test1[i]["labels"],
                                             folds_aucroc_test1[i]["probs"],
@@ -367,6 +411,8 @@ for comb_ in comb_list:
     # ROC curves
     plt.figure()
     for i in folds_id:
+        fold_id = str(i + 1)
+
         # plot ROC curve for
         fpr_train, tpr_train, _ = roc_curve(folds_aucroc_test2[i]["labels"],
                                             folds_aucroc_test2[i]["probs"],
@@ -381,3 +427,46 @@ for comb_ in comb_list:
     plt.legend()
 
     plt.savefig(results_path + output_prefix + "_alt_test_auc_roc.pdf")
+
+    # rebuild the model on the full train set and test on held-out
+    if mode_ == "create":
+        search.fit(cnt_data_train_full, sepsis_cat_train_full)
+        dump(search, results_path + output_prefix + "_full_dump.joblib")
+    else:
+        if mode_ == "load":
+            search = load(results_path + output_prefix + "_full_dump.joblib")
+
+    best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
+    pd.DataFrame(best_vars).to_csv(results_path + output_prefix + "_full_best_vars.csv", header=False,
+                                   index=False)
+
+    # plot ROC curve for train set
+    print(search.best_score_)
+    fpr_train, tpr_train, _ = roc_curve(sepsis_cat_train_full,
+                                        search.predict_proba(cnt_data_train_full)[:, 1],
+                                        pos_label=search.classes_[1])
+
+    plt.figure()
+    plt.plot(fpr_train, tpr_train, color='orange')
+    plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve - Full train set')
+
+    plt.savefig(results_path + output_prefix + "_train_full_auc_roc.pdf")
+
+    # plot ROC curve for test set
+    probs = search.predict_proba(cnt_data_test_full)[:, 1]
+    roc_auc = roc_auc_score(sepsis_cat_test_full, probs)
+    print(roc_auc)
+    fpr_test, tpr_test, _ = roc_curve(sepsis_cat_test_full, probs, pos_label=search.classes_[1])
+
+    plt.figure()
+    plt.plot(fpr_test, tpr_test, color='orange')
+    plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--')
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve - Full test set')
+    plt.legend()
+
+    plt.savefig(results_path + output_prefix + "_test_full_auc_roc.pdf")
