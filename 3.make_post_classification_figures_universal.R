@@ -68,7 +68,7 @@ for (i in c(1:length(algos_))){
   mapping_data_path <- paste(data_path, paste("processed/", paste(file_prefix, "_cnts.csv", sep=""), sep = ""), sep = "")
   mapping_data <- read.csv(mapping_data_path, row.names = 1)
   
-  best_vars_path <- paste(results_path, paste(algo_ , "_best_vars.csv", sep=""), sep = "")
+  best_vars_path <- paste(results_path, paste(algo_ , "_full_best_vars.csv", sep=""), sep = "")
   best_vars <- read.csv(best_vars_path, header = FALSE)
   
   #########################
@@ -103,7 +103,7 @@ for (i in c(1:length(algos_))){
   d_melt$sepsis_cat <- meta_data[as.character(d_melt$Var2), "sepsis_cat"]
   
   pdf(paste(results_path, paste(output_prefix, "profile_plot.pdf", sep = "_"), sep = ""),
-      width = 10, height = 6)
+      width = 15, height = 9)
   print(ggplot(d_melt, aes(x=Var1, y=value, group=Var2, color=sepsis_cat)) +
     geom_line() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)))
@@ -115,7 +115,7 @@ for (i in c(1:length(algos_))){
   annot_data$sepsis_cat <- relevel(annot_data$sepsis_cat, ref="4_NO_Sepsis")
   
   pdf(paste(results_path, paste(output_prefix, "hm.pdf", sep = "_"), sep = ""),
-      width = 8, height = 5)
+      width = 10, height = 10)
   print(pheatmap(vst_scaled_data, annotation_col = annot_data, scale = "none",
            show_colnames = FALSE, cutree_cols = 2))
   dev.off()

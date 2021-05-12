@@ -280,11 +280,6 @@ for comb_ in comb_list:
                 if mode_ == "load":
                     search = load(results_path + output_prefix + "_dump.joblib")
 
-            # save list of predictors
-            best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
-            pd.DataFrame(best_vars).to_csv(results_path + output_prefix + "_best_vars.csv", header=False,
-                                           index=False)
-
         else:
             if mode_ == "create":
                 # fit the chosen model
@@ -294,7 +289,7 @@ for comb_ in comb_list:
                 if mode_ == "load":
                     search = load(results_path + output_prefix + "_" + fold_id + "_dump.joblib")
 
-            best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
+        best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
 
         folds_aucroc_train.append({"labels": sepsis_cat_train,
                                    "probs": search.predict_proba(cnt_data_train)[:, 1],
@@ -437,6 +432,7 @@ for comb_ in comb_list:
             search = load(results_path + output_prefix + "_full_dump.joblib")
 
     best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
+    print(len(best_vars))
     pd.DataFrame(best_vars).to_csv(results_path + output_prefix + "_full_best_vars.csv", header=False,
                                    index=False)
 
@@ -467,6 +463,51 @@ for comb_ in comb_list:
     plt.xlabel('False Positive Rate')
     plt.ylabel('True Positive Rate')
     plt.title('Receiver Operating Characteristic (ROC) Curve - Full test set')
-    plt.legend()
 
     plt.savefig(results_path + output_prefix + "_test_full_auc_roc.pdf")
+
+    # test full model on low counts and external data
+    if data_from_ == "paxgene":
+        # evaluate on low count paxgene samples
+        probs = search.predict_proba(paxgene_cnt_data_low)
+        probs = probs[:, 1]
+        roc_auc = roc_auc_score(meta_data_tmp_low.sepsis_cat, probs)
+        print(roc_auc)
+
+        # test on two external datasets with a good feature overlap
+        # filter to keep only genes of interest
+        gse28750_cnt_data_tmp = gse28750_cnt_data.loc[:, gse28750_cnt_data.columns.isin(best_vars)]
+        gse9960_cnt_data_tmp = gse9960_cnt_data.loc[:, gse9960_cnt_data.columns.isin(best_vars)]
+
+        if algo_ == "xgb":
+            best_estimator = search.best_estimator_.named_steps["xgbc"]
+        else:
+            if algo_ == "bsvm":
+                best_estimator = search.best_estimator_.named_steps["bsvmc"]
+
+        # scale data
+        ext_scaler = StandardScaler()
+
+        gse28750_cnt_data_scaled_tmp = ext_scaler.fit_transform(gse28750_cnt_data_tmp)
+        gse9960_cnt_data_scaled_tmp = ext_scaler.fit_transform(gse9960_cnt_data_tmp)
+
+        # apply classifiers
+        if gse28750_cnt_data_scaled_tmp.shape[1] == len(best_vars):
+            probs = best_estimator.predict_proba(gse28750_cnt_data_scaled_tmp)
+            probs = probs[:, 1]
+            roc_auc = roc_auc_score(gse28750_meta_data.sepsis_cat, probs)
+            print(roc_auc)
+
+        if gse9960_cnt_data_scaled_tmp.shape[1] == len(best_vars):
+            probs = best_estimator.predict_proba(gse9960_cnt_data_scaled_tmp)
+            probs = probs[:, 1]
+            roc_auc = roc_auc_score(gse9960_meta_data.sepsis_cat, probs)
+            print(roc_auc)
+
+    else:
+        if data_from_ == "plasma":
+            # evaluate on low count plasma samples
+            probs = search.predict_proba(plasma_cnt_data_low)
+            probs = probs[:, 1]
+            roc_auc = roc_auc_score(meta_data_tmp_low.sepsis_cat, probs)
+            print(roc_auc)
