@@ -49,9 +49,7 @@ algos_ <- c(
   "plasma_50000_20_0.1_plasma_TRUE_bsvm_1vs4_sepsis", "paxgene_50000_20_0.1_paxgene_TRUE_bsvm_1vs4_sepsis",
   "plasma_50000_20_0.1_plasma_TRUE_xgb_12vs4_sepsis", "paxgene_50000_20_0.1_paxgene_TRUE_xgb_12vs4_sepsis",
   "plasma_50000_20_0.1_plasma_TRUE_bsvm_12vs4_sepsis", "paxgene_50000_20_0.1_paxgene_TRUE_bsvm_12vs4_sepsis",
-  "plasma_50000_20_0.1_plasma_TRUE_xgb_12_virus", "paxgene_50000_20_0.1_paxgene_TRUE_xgb_12_virus",
   "plasma_50000_20_0.1_plasma_TRUE_bsvm_12_virus", "paxgene_50000_20_0.1_paxgene_TRUE_bsvm_12_virus",
-  "plasma_50000_20_0.1_plasma_TRUE_xgb_124_virus", "paxgene_50000_20_0.1_paxgene_TRUE_xgb_124_virus",
   "plasma_50000_20_0.1_plasma_TRUE_bsvm_124_virus", "paxgene_50000_20_0.1_paxgene_TRUE_bsvm_124_virus"
 )
 
@@ -98,7 +96,12 @@ for (i in c(1:length(algos_))) {
   # extract symbols
   best_vars_symbols <- c()
   for (gene_ in best_vars$V1) {
-    best_vars_symbols[gene_] <- mapping_data[gene_, ]
+    if (!is.na(mapping_data[gene_, ])){
+      best_vars_symbols[gene_] <- mapping_data[gene_, ]
+    }else{
+      best_vars_symbols[gene_] <- gene_
+    }
+    
   }
 
   # extract VST counts for selected genes

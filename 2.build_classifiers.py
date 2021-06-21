@@ -243,18 +243,18 @@ for comb_ in comb_list:
         if data_from_ == "plasma":
             target_data = plasma_cnt_data
 
-    # split data to have a held-out set
+    # target classes for count data
     if target_ == 'sepsis':
-        cnt_data_train_full, cnt_data_test_full, \
-        target_cat_train_full, target_cat_test_full = train_test_split(target_data, meta_data.sepsis_cat,
-                                                             test_size=0.3, random_state=123,
-                                                             stratify=meta_data.sepsis_cat)
+        target_cat = meta_data.sepsis_cat
     else:
         if target_ == 'virus':
-            cnt_data_train_full, cnt_data_test_full, \
-            target_cat_train_full, target_cat_test_full = train_test_split(target_data, meta_data.viruspos,
-                                                                           test_size=0.3, random_state=123,
-                                                                           stratify=meta_data.viruspos)
+            target_cat = meta_data.viruspos
+
+    # split data to have a held-out set
+    cnt_data_train_full, cnt_data_test_full, \
+    target_cat_train_full, target_cat_test_full = train_test_split(target_data, target_cat,
+                                                         test_size=0.3, random_state=123,
+                                                         stratify=target_cat)
 
     #########################
     # FOR EACH CV
@@ -314,16 +314,17 @@ for comb_ in comb_list:
         best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
 
         # add results to the list
+        probs = search.predict_proba(cnt_data_train)[:, 1]
         cvs_aucroc_train.append({"labels": target_cat_train,
-                                 "probs": search.predict_proba(cnt_data_train)[:, 1],
+                                 "probs": probs,
                                  "classes": search.classes_[1],
                                  "n_preds": len(best_vars),
-                                 "roc_auc": search.best_score_})
+                                 "roc_auc": roc_auc_score(target_cat_train, probs)})
 
         # print output
         print(cv_id)
         print(search.best_params_)
-        print(search.best_score_)
+        #print(search.best_score_)
 
         print(len(best_vars))
         print(best_vars)
@@ -393,64 +394,6 @@ for comb_ in comb_list:
                      "classes": search.classes_[1],
                      "roc_auc": roc_auc})
 
-    # plot ROC curve for the training set
-    plt.figure()
-    for i in cvs_id:
-        cv_id = str(i + 1)
-        fpr_train, tpr_train, _ = roc_curve(cvs_aucroc_train[i]["labels"],
-                                            cvs_aucroc_train[i]["probs"],
-                                            pos_label=cvs_aucroc_train[i]["classes"])
-
-        plt.plot(fpr_train, tpr_train, label='cv ' + cv_id)
-
-    plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve - Train set')
-    plt.legend()
-
-    plt.savefig(results_path + output_prefix + "_train_auc_roc.pdf")
-
-    # plot ROC curve for the testing set
-    plt.figure()
-    for i in cvs_id:
-        cv_id = str(i + 1)
-
-        # plot ROC curve for
-        fpr_train, tpr_train, _ = roc_curve(cvs_aucroc_test1[i]["labels"],
-                                            cvs_aucroc_test1[i]["probs"],
-                                            pos_label=cvs_aucroc_test1[i]["classes"])
-
-        plt.plot(fpr_train, tpr_train, label='cv ' + cv_id)
-
-    plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve - Test set')
-    plt.legend()
-
-    plt.savefig(results_path + output_prefix + "_test_auc_roc.pdf")
-
-    # plot ROC curve for the low counts set
-    plt.figure()
-    for i in cvs_id:
-        cv_id = str(i + 1)
-
-        # plot ROC curve for
-        fpr_train, tpr_train, _ = roc_curve(cvs_aucroc_test2[i]["labels"],
-                                            cvs_aucroc_test2[i]["probs"],
-                                            pos_label=cvs_aucroc_test2[i]["classes"])
-
-        plt.plot(fpr_train, tpr_train, label='cv ' + cv_id)
-
-    plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve - Alternative test set')
-    plt.legend()
-
-    plt.savefig(results_path + output_prefix + "_alt_test_auc_roc.pdf")
-
     # rebuild the model on the full train set and test on held-out
     if mode_ == "create":
         search.fit(cnt_data_train_full, target_cat_train_full)
@@ -459,55 +402,19 @@ for comb_ in comb_list:
         if mode_ == "load":
             search = load(results_path + output_prefix + "_full_dump.joblib")
 
+    # full train set
+    #print(search.best_score_)
+
     # extract and save predictors
     best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
     print(len(best_vars))
     pd.DataFrame(best_vars).to_csv(results_path + output_prefix + "_full_best_vars.csv", header=False,
                                    index=False)
 
-    # plot ROC curve for the train set
-    print(search.best_score_)
-    fpr_train, tpr_train, _ = roc_curve(target_cat_train_full,
-                                        search.predict_proba(cnt_data_train_full)[:, 1],
-                                        pos_label=search.classes_[1])
-
-    plt.figure()
-    plt.plot(fpr_train, tpr_train, color='orange')
-    plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve - Full train set')
-
-    plt.savefig(results_path + output_prefix + "_train_full_auc_roc.pdf")
-
-    # plot ROC curve for the test set
+    # test on full test set
     probs = search.predict_proba(cnt_data_test_full)[:, 1]
     roc_auc_test_full = roc_auc_score(target_cat_test_full, probs)
     print(roc_auc_test_full)
-    fpr_test, tpr_test, _ = roc_curve(target_cat_test_full, probs, pos_label=search.classes_[1])
-
-    plt.figure()
-    plt.plot(fpr_test, tpr_test, color='orange')
-    plt.plot([0, 1], [0, 1], color='darkblue', linestyle='--')
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('Receiver Operating Characteristic (ROC) Curve - Full test set')
-
-    plt.savefig(results_path + output_prefix + "_test_full_auc_roc.pdf")
-
-    # plot confusion matrix
-    plot_confusion_matrix(search, cnt_data_test_full, target_cat_test_full)
-    plt.savefig(results_path + output_prefix + "_test_full_conf_mat.pdf")
-
-    # save predicted probabilities for the test set
-    if (search.classes_[1] == "1_Sepsis+BldCx+") | (search.classes_[1] == "viral"):
-        target_probs = probs
-    else:
-        target_probs = [1-x for x in probs]
-
-    dict_probs = {'sample_ids': cnt_data_test_full.index.values,
-                  'probs': target_probs}
-    pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_test_probs.csv")
 
     # test full model on low counts and external data
     if data_from_ == "paxgene":
@@ -555,6 +462,9 @@ for comb_ in comb_list:
             roc_auc_low = roc_auc_score(target_cat_low, probs)
             print(roc_auc_low)
 
+    #########################
+    # Performance summary
+    #########################
     # performance summary
     res_dict = {'cv_id': [x+1 for x in cvs_id],
                 'n_preds': [x["n_preds"] for x in cvs_aucroc_train],
@@ -562,7 +472,7 @@ for comb_ in comb_list:
                 'roc_auc_test1': [x["roc_auc"].round(2) for x in cvs_aucroc_test1],
                 'roc_auc_test2': [x["roc_auc"].round(2) for x in cvs_aucroc_test2]}
 
-    # add meand and std
+    # add mean and std
     res_dict['cv_id'] = res_dict['cv_id'] + ["mean (std)"]
     res_dict['n_preds'] = res_dict['n_preds'] + [""]
     res_dict['roc_auc_train'] = res_dict['roc_auc_train'] + [
@@ -573,10 +483,95 @@ for comb_ in comb_list:
         str(np.mean(res_dict['roc_auc_test2']).round(2)) + " (" + str(np.std(res_dict['roc_auc_test2']).round(2)) + ")"]
 
     # add full model summary
+    probs = search.predict_proba(cnt_data_train_full)[:, 1]
     res_dict['cv_id'] = res_dict['cv_id'] + ["full"]
     res_dict['n_preds'] = res_dict['n_preds'] + [len(best_vars)]
-    res_dict['roc_auc_train'] = res_dict['roc_auc_train'] + [search.best_score_.round(2)]
+    res_dict['roc_auc_train'] = res_dict['roc_auc_train'] + [roc_auc_score(target_cat_train_full, probs).round(2)]
     res_dict['roc_auc_test1'] = res_dict['roc_auc_test1'] + [roc_auc_test_full.round(2)]
     res_dict['roc_auc_test2'] = res_dict['roc_auc_test2'] + [roc_auc_low.round(2)]
 
     pd.DataFrame(data=res_dict).to_csv(results_path + output_prefix + "_summary_table.csv")
+
+    #########################
+    # AUC-ROC curves
+    #########################
+    # plot ROC curve for the training set
+    plt.figure()
+    for i in cvs_id:
+        cv_id = str(i + 1)
+        fpr_train, tpr_train, _ = roc_curve(cvs_aucroc_train[i]["labels"],
+                                            cvs_aucroc_train[i]["probs"],
+                                            pos_label=cvs_aucroc_train[i]["classes"])
+
+        if i == 0:
+            plt.plot(fpr_train, tpr_train, label='Cross-validation splits, AUC=' +
+                                                 str(np.mean([x["roc_auc"].round(2) for x in cvs_aucroc_train]).round(2)) + " (" +
+                                                 str(np.std([x["roc_auc"].round(2) for x in cvs_aucroc_train]).round(2)) + ")",
+                     color="red", linewidth=1, alpha=0.3)
+        else:
+            plt.plot(fpr_train, tpr_train, color="red", linewidth=1, alpha=0.3)
+
+    # plot ROC curve for the full train set
+    fpr_train, tpr_train, _ = roc_curve(target_cat_train_full,
+                                        probs,
+                                        pos_label=search.classes_[1])
+
+    plt.plot(fpr_train, tpr_train, label='Full train set, AUC=' + str(roc_auc_score(target_cat_train_full, probs).round(2)), color='grey',
+             linewidth=2)
+    plt.plot([0, 1], [0, 1], color='grey', linewidth=1)
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve - Train sets')
+    plt.legend()
+
+    plt.savefig(results_path + output_prefix + "_train_all_auc_roc.pdf")
+
+    # plot ROC curve for the testing set
+    plt.figure()
+    for i in cvs_id:
+        cv_id = str(i + 1)
+        fpr_test, tpr_test, _ = roc_curve(cvs_aucroc_test1[i]["labels"],
+                                          cvs_aucroc_test1[i]["probs"],
+                                          pos_label=cvs_aucroc_test1[i]["classes"])
+
+        if i == 0:
+            plt.plot(fpr_test, tpr_test, label='Cross-validation splits, AUC=' +
+                                               str(np.mean([x["roc_auc"].round(2) for x in cvs_aucroc_test1]).round(2)) + " (" +
+                                               str(np.std([x["roc_auc"].round(2) for x in cvs_aucroc_test1]).round(2)) + ")",
+                     color="red", linewidth=1, alpha=0.3)
+        else:
+            plt.plot(fpr_test, tpr_test, color="red", linewidth=1, alpha=0.3)
+
+    # plot ROC curve for the full test set
+    probs = search.predict_proba(cnt_data_test_full)
+    probs = probs[:, 1]
+    roc_auc = roc_auc_score(target_cat_test_full, probs)
+    fpr_test, tpr_test, _ = roc_curve(target_cat_test_full,
+                                      probs,
+                                      pos_label=search.classes_[1])
+
+    plt.plot(fpr_test, tpr_test, label='Full test set, AUC=' + str(roc_auc.round(2)), color='grey',
+             linewidth=2)
+    plt.plot([0, 1], [0, 1], color='grey', linewidth=1)
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic (ROC) Curve - Test sets')
+    plt.legend()
+
+    plt.savefig(results_path + output_prefix + "_test_all_auc_roc.pdf")
+
+    # plot confusion matrices
+    plot_confusion_matrix(search, cnt_data_train_full, target_cat_train_full)
+    plt.savefig(results_path + output_prefix + "_train_full_conf_mat.pdf")
+    plot_confusion_matrix(search, cnt_data_test_full, target_cat_test_full)
+    plt.savefig(results_path + output_prefix + "_test_full_conf_mat.pdf")
+
+    # save predicted probabilities for the full test set
+    if (search.classes_[1] == "1_Sepsis+BldCx+") | (search.classes_[1] == "viral"):
+        target_probs = probs
+    else:
+        target_probs = [1 - x for x in probs]
+
+    dict_probs = {'sample_ids': cnt_data_test_full.index.values,
+                  'probs': target_probs}
+    pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_test_probs.csv")

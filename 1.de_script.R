@@ -44,7 +44,7 @@ results_path <-
 # do we want to use overlapping genes (between PAXgene and plasma) 
 # or keep all genes
 # "overlap" or "all_genes"
-genes_to_use <- "all_genes"
+genes_to_use <- "overlap"
 
 # all parameter values to test
 # minimum number of counts per sample in plasma
