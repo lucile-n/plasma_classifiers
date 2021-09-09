@@ -30,7 +30,7 @@ import numpy as np
 # 1.1.3
 import pandas as pd
 # 0.23.2
-from sklearn.metrics import roc_auc_score, roc_curve, plot_roc_curve, plot_confusion_matrix
+from sklearn.metrics import roc_auc_score, roc_curve, plot_confusion_matrix
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -48,7 +48,7 @@ results_path = "/Users/lucileneyton/OneDrive - University of California, San Fra
 # set params
 mode_ = "load"
 # all_genes or overlap
-genes_to_use = "overlap"
+genes_to_use = "all_genes"
 num_cv = 5
 comb_to_run = int(sys.argv[1])
 
@@ -114,6 +114,25 @@ for comb_ in comb_list:
     # counts data
     paxgene_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_paxgene_cnts.csv", index_col=0)
     plasma_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_plasma_cnts.csv", index_col=0)
+
+    if comp_ == "12" and data_from_ == "plasma":
+        G4_plasma_cnt_data = pd.read_csv(plasma_data_path + "../processed/" + "50000_plasma_G4_unfiltered_cnts.csv", index_col=0)
+        G4_plasma_cnt_data = G4_plasma_cnt_data.loc[G4_plasma_cnt_data.index.isin(plasma_cnt_data.index), :]
+        G4_plasma_cnt_data = G4_plasma_cnt_data.drop("hgnc_symbol", axis=1)
+        G4_plasma_cnt_data = G4_plasma_cnt_data.T
+
+    if data_from_ == "plasma":
+        G3_plasma_cnt_data = pd.read_csv(plasma_data_path + "../processed/" + "50000_plasma_G3_unfiltered_cnts.csv",
+                                         index_col=0)
+        G3_plasma_cnt_data = G3_plasma_cnt_data.loc[G3_plasma_cnt_data.index.isin(plasma_cnt_data.index), :]
+        G3_plasma_cnt_data = G3_plasma_cnt_data.drop("hgnc_symbol", axis=1)
+        G3_plasma_cnt_data = G3_plasma_cnt_data.T
+
+        G5_plasma_cnt_data = pd.read_csv(plasma_data_path + "../processed/" + "50000_plasma_G5_unfiltered_cnts.csv",
+                                         index_col=0)
+        G5_plasma_cnt_data = G5_plasma_cnt_data.loc[G5_plasma_cnt_data.index.isin(plasma_cnt_data.index), :]
+        G5_plasma_cnt_data = G5_plasma_cnt_data.drop("hgnc_symbol", axis=1)
+        G5_plasma_cnt_data = G5_plasma_cnt_data.T
 
     # plasma meta data (to order main metadata frame)
     meta_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_metadata.csv", index_col=0)
@@ -269,6 +288,10 @@ for comb_ in comb_list:
     cvs_aucroc_train = []
     cvs_aucroc_test1 = []
     cvs_aucroc_test2 = []
+    cvs_aucroc_test_full = []
+    cvs_aucroc_G4 = []
+    cvs_aucroc_G3 = []
+    cvs_aucroc_G5 = []
 
     # target classes for low count data
     if target_ == 'sepsis':
@@ -339,6 +362,16 @@ for comb_ in comb_list:
                                  "roc_auc": roc_auc})
         print(roc_auc)
 
+        # evaluate on full test data
+        probs = search.predict_proba(cnt_data_test_full)
+        probs = probs[:, 1]
+        roc_auc = roc_auc_score(target_cat_test_full, probs)
+        cvs_aucroc_test_full.append({"labels": target_cat_test_full,
+                                     "probs": probs,
+                                     "classes": search.classes_[1],
+                                     "roc_auc": roc_auc})
+        print(roc_auc)
+
         if data_from_ == "paxgene":
             # evaluate on low count paxgene samples
             probs = search.predict_proba(paxgene_cnt_data_low)
@@ -393,6 +426,39 @@ for comb_ in comb_list:
                      "probs": probs,
                      "classes": search.classes_[1],
                      "roc_auc": roc_auc})
+
+                if comp_ == '12':
+                    # evaluate on G4 plasma samples
+                    probs = search.predict_proba(G4_plasma_cnt_data)
+                    probs = probs[:, 1]
+                    csv_labels = pd.DataFrame(np.repeat("nonviral", G4_plasma_cnt_data.shape[0]), index=G4_plasma_cnt_data.index)
+                    cvs_aucroc_G4.append(
+                        {"labels": csv_labels,
+                         "probs": probs,
+                         "classes": search.classes_[1],
+                         "roc_auc": np.nan})
+
+                # evaluate on G3 and G5 plasma samples
+                probs = search.predict_proba(G3_plasma_cnt_data)
+                probs = probs[:, 1]
+                csv_labels = pd.DataFrame(np.repeat("nonviral", G3_plasma_cnt_data.shape[0]),
+                                          index=G3_plasma_cnt_data.index)
+                cvs_aucroc_G3.append(
+                    {"labels": csv_labels,
+                     "probs": probs,
+                     "classes": search.classes_[1],
+                     "roc_auc": np.nan})
+
+                probs = search.predict_proba(G5_plasma_cnt_data)
+                probs = probs[:, 1]
+                csv_labels = pd.DataFrame(np.repeat("nonviral", G5_plasma_cnt_data.shape[0]),
+                                          index=G5_plasma_cnt_data.index)
+                cvs_aucroc_G5.append(
+                    {"labels": csv_labels,
+                     "probs": probs,
+                     "classes": search.classes_[1],
+                     "roc_auc": np.nan})
+
 
     # rebuild the model on the full train set and test on held-out
     if mode_ == "create":
@@ -466,11 +532,12 @@ for comb_ in comb_list:
     # Performance summary
     #########################
     # performance summary
-    res_dict = {'cv_id': [x+1 for x in cvs_id],
+    res_dict = {'cv_id': [x + 1 for x in cvs_id],
                 'n_preds': [x["n_preds"] for x in cvs_aucroc_train],
                 'roc_auc_train': [x["roc_auc"].round(2) for x in cvs_aucroc_train],
                 'roc_auc_test1': [x["roc_auc"].round(2) for x in cvs_aucroc_test1],
-                'roc_auc_test2': [x["roc_auc"].round(2) for x in cvs_aucroc_test2]}
+                'roc_auc_test2': [x["roc_auc"].round(2) for x in cvs_aucroc_test2],
+                'roc_auc_test_full': [x["roc_auc"].round(2) for x in cvs_aucroc_test_full]}
 
     # add mean and std
     res_dict['cv_id'] = res_dict['cv_id'] + ["mean (std)"]
@@ -481,14 +548,17 @@ for comb_ in comb_list:
         str(np.mean(res_dict['roc_auc_test1']).round(2)) + " (" + str(np.std(res_dict['roc_auc_test1']).round(2)) + ")"]
     res_dict['roc_auc_test2'] = res_dict['roc_auc_test2'] + [
         str(np.mean(res_dict['roc_auc_test2']).round(2)) + " (" + str(np.std(res_dict['roc_auc_test2']).round(2)) + ")"]
+    res_dict['roc_auc_test_full'] = res_dict['roc_auc_test_full'] + [
+        str(np.mean(res_dict['roc_auc_test_full']).round(2)) + " (" + str(np.std(res_dict['roc_auc_test_full']).round(2)) + ")"]
 
     # add full model summary
     probs = search.predict_proba(cnt_data_train_full)[:, 1]
     res_dict['cv_id'] = res_dict['cv_id'] + ["full"]
     res_dict['n_preds'] = res_dict['n_preds'] + [len(best_vars)]
     res_dict['roc_auc_train'] = res_dict['roc_auc_train'] + [roc_auc_score(target_cat_train_full, probs).round(2)]
-    res_dict['roc_auc_test1'] = res_dict['roc_auc_test1'] + [roc_auc_test_full.round(2)]
+    res_dict['roc_auc_test1'] = res_dict['roc_auc_test1'] + ["NA"]
     res_dict['roc_auc_test2'] = res_dict['roc_auc_test2'] + [roc_auc_low.round(2)]
+    res_dict['roc_auc_test_full'] = res_dict['roc_auc_test_full'] + [roc_auc_test_full.round(2)]
 
     pd.DataFrame(data=res_dict).to_csv(results_path + output_prefix + "_summary_table.csv")
 
@@ -566,12 +636,178 @@ for comb_ in comb_list:
     plot_confusion_matrix(search, cnt_data_test_full, target_cat_test_full)
     plt.savefig(results_path + output_prefix + "_test_full_conf_mat.pdf")
 
-    # save predicted probabilities for the full test set
+    # save predicted probabilities for the train set
+    cvs_dict_probs = {}
+    for i in cvs_id:
+        cv_id = str(i + 1)
+        for id_ in cvs_aucroc_test1[i]["labels"].index:
+            if id_ not in cvs_dict_probs.keys():
+                cvs_dict_probs[id_] = [
+                    cvs_aucroc_test1[i]["probs"][np.where(cvs_aucroc_test1[i]["labels"].index == id_)][0]]
+            else:
+                cvs_dict_probs[id_] = cvs_dict_probs[id_] + [cvs_aucroc_test1[i]["probs"][np.where(cvs_aucroc_test1[i]["labels"].index == id_)][0]]
+
+    for id_ in cvs_dict_probs.keys():
+        cvs_dict_probs[id_] = np.mean(cvs_dict_probs[id_])
+
+    if (search.classes_[1] != "1_Sepsis+BldCx+") & (search.classes_[1] != "viral"):
+        for id_ in cvs_dict_probs.keys():
+            cvs_dict_probs[id_] = 1 - cvs_dict_probs[id_]
+
+    dict_df = pd.DataFrame.from_dict(data=cvs_dict_probs, orient='index')
+    if target_ == 'sepsis':
+        dict_df['true_label'] = meta_data.loc[dict_df.index, "sepsis_cat"]
+    else:
+        if target_ == 'virus':
+            dict_df['true_label'] = meta_data.loc[dict_df.index, "viruspos"]
+    dict_df.to_csv(results_path + output_prefix + "_mean_full_train_probs.csv")
+
+    # save probabilities for full test samples
+    cvs_dict_probs = {}
+    for i in cvs_id:
+        cv_id = str(i + 1)
+        for id_ in cvs_aucroc_test_full[i]["labels"].index:
+            if id_ not in cvs_dict_probs.keys():
+                cvs_dict_probs[id_] = [
+                    cvs_aucroc_test_full[i]["probs"][np.where(cvs_aucroc_test_full[i]["labels"].index == id_)][0]]
+            else:
+                cvs_dict_probs[id_] = cvs_dict_probs[id_] + [
+                    cvs_aucroc_test_full[i]["probs"][np.where(cvs_aucroc_test_full[i]["labels"].index == id_)][0]]
+
+    for id_ in cvs_dict_probs.keys():
+        cvs_dict_probs[id_] = np.mean(cvs_dict_probs[id_])
+
+    if (search.classes_[1] != "1_Sepsis+BldCx+") & (search.classes_[1] != "viral"):
+        for id_ in cvs_dict_probs.keys():
+            cvs_dict_probs[id_] = 1 - cvs_dict_probs[id_]
+
+    dict_df = pd.DataFrame.from_dict(data=cvs_dict_probs, orient='index')
+    dict_df['true_label'] = target_cat_test_full
+    dict_df.to_csv(results_path + output_prefix + "_mean_full_test_probs.csv")
+
+    # save probabilities for G4 samples
+    if comp_ == '12' and data_from_ == "plasma":
+        cvs_dict_probs = {}
+        for i in cvs_id:
+            cv_id = str(i + 1)
+            for id_ in cvs_aucroc_G4[i]["labels"].index:
+                if id_ not in cvs_dict_probs.keys():
+                    cvs_dict_probs[id_] = [
+                        cvs_aucroc_G4[i]["probs"][np.where(cvs_aucroc_G4[i]["labels"].index == id_)][0]]
+                else:
+                    cvs_dict_probs[id_] = cvs_dict_probs[id_] + [
+                        cvs_aucroc_G4[i]["probs"][np.where(cvs_aucroc_G4[i]["labels"].index == id_)][0]]
+
+        for id_ in cvs_dict_probs.keys():
+            cvs_dict_probs[id_] = np.mean(cvs_dict_probs[id_])
+
+        if search.classes_[1] != "viral":
+            for id_ in cvs_dict_probs.keys():
+                cvs_dict_probs[id_] = 1 - cvs_dict_probs[id_]
+
+        dict_df = pd.DataFrame.from_dict(data=cvs_dict_probs, orient='index')
+        dict_df['true_label'] = np.repeat('nonviral', len(cvs_dict_probs))
+        dict_df.to_csv(results_path + output_prefix + "_mean_G4_probs.csv")
+
+    if data_from_ == "plasma":
+        cvs_dict_probs = {}
+        for i in cvs_id:
+            cv_id = str(i + 1)
+            for id_ in cvs_aucroc_G3[i]["labels"].index:
+                if id_ not in cvs_dict_probs.keys():
+                    cvs_dict_probs[id_] = [
+                        cvs_aucroc_G3[i]["probs"][np.where(cvs_aucroc_G3[i]["labels"].index == id_)][0]]
+                else:
+                    cvs_dict_probs[id_] = cvs_dict_probs[id_] + [
+                        cvs_aucroc_G3[i]["probs"][np.where(cvs_aucroc_G3[i]["labels"].index == id_)][0]]
+
+        for id_ in cvs_dict_probs.keys():
+            cvs_dict_probs[id_] = np.mean(cvs_dict_probs[id_])
+
+        if (search.classes_[1] != "viral") & (search.classes_[1] != "1_Sepsis+BldCx+"):
+            for id_ in cvs_dict_probs.keys():
+                cvs_dict_probs[id_] = 1 - cvs_dict_probs[id_]
+
+        dict_df = pd.DataFrame.from_dict(data=cvs_dict_probs, orient='index')
+        dict_df.to_csv(results_path + output_prefix + "_mean_G3_probs.csv")
+
+        cvs_dict_probs = {}
+        for i in cvs_id:
+            cv_id = str(i + 1)
+            for id_ in cvs_aucroc_G5[i]["labels"].index:
+                if id_ not in cvs_dict_probs.keys():
+                    cvs_dict_probs[id_] = [
+                        cvs_aucroc_G5[i]["probs"][np.where(cvs_aucroc_G5[i]["labels"].index == id_)][0]]
+                else:
+                    cvs_dict_probs[id_] = cvs_dict_probs[id_] + [
+                        cvs_aucroc_G5[i]["probs"][np.where(cvs_aucroc_G5[i]["labels"].index == id_)][0]]
+
+        for id_ in cvs_dict_probs.keys():
+            cvs_dict_probs[id_] = np.mean(cvs_dict_probs[id_])
+
+        if (search.classes_[1] != "viral") & (search.classes_[1] != "1_Sepsis+BldCx+"):
+            for id_ in cvs_dict_probs.keys():
+                cvs_dict_probs[id_] = 1 - cvs_dict_probs[id_]
+
+        dict_df = pd.DataFrame.from_dict(data=cvs_dict_probs, orient='index')
+        dict_df.to_csv(results_path + output_prefix + "_mean_G5_probs.csv")
+
+    # save predicted probabilities for the full train and test sets (+G4 if plasma 12 virus comparison)
+    # train set
+    probs_full_train = search.predict_proba(cnt_data_train_full)
+    probs_full_train = probs_full_train[:, 1]
+    if (search.classes_[1] == "1_Sepsis+BldCx+") | (search.classes_[1] == "viral"):
+        target_probs = probs_full_train
+    else:
+        target_probs = [1 - x for x in probs_full_train]
+
+    dict_probs = {'sample_ids': cnt_data_train_full.index.values,
+                  'probs': target_probs, 'true_label': target_cat_train_full}
+    pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_full_train_probs.csv")
+
+    # test set
     if (search.classes_[1] == "1_Sepsis+BldCx+") | (search.classes_[1] == "viral"):
         target_probs = probs
     else:
         target_probs = [1 - x for x in probs]
 
     dict_probs = {'sample_ids': cnt_data_test_full.index.values,
-                  'probs': target_probs}
-    pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_test_probs.csv")
+                  'probs': target_probs, 'true_label': target_cat_test_full}
+    pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_full_test_probs.csv")
+
+    # G4 test set
+    if comp_ == "12" and data_from_ == "plasma":
+        probs_G4 = search.predict_proba(G4_plasma_cnt_data)
+        probs_G4 = probs_G4[:, 1]
+        if search.classes_[1] == "viral":
+            target_probs = probs_G4
+        else:
+            target_probs = [1 - x for x in probs_G4]
+
+        dict_probs = {'sample_ids': G4_plasma_cnt_data.index.values,
+                      'probs': target_probs, 'true_label': np.repeat('nonviral', len(G4_plasma_cnt_data.index.values))}
+        pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_G4_probs.csv")
+
+    # G3 and G5 test sets
+    if data_from_ == "plasma":
+        probs_G3 = search.predict_proba(G3_plasma_cnt_data)
+        probs_G3 = probs_G3[:, 1]
+        if (search.classes_[1] == "1_Sepsis+BldCx+") | (search.classes_[1] == "viral"):
+            target_probs = probs_G3
+        else:
+            target_probs = [1 - x for x in probs_G3]
+
+        dict_probs = {'sample_ids': G3_plasma_cnt_data.index.values,
+                      'probs': target_probs}
+        pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_G3_probs.csv")
+
+        probs_G5 = search.predict_proba(G5_plasma_cnt_data)
+        probs_G5 = probs_G5[:, 1]
+        if (search.classes_[1] == "1_Sepsis+BldCx+") | (search.classes_[1] == "viral"):
+            target_probs = probs_G5
+        else:
+            target_probs = [1 - x for x in probs_G5]
+
+        dict_probs = {'sample_ids': G5_plasma_cnt_data.index.values,
+                      'probs': target_probs}
+        pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_G5_probs.csv")

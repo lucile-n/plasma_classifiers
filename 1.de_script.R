@@ -29,6 +29,7 @@ library(readxl) # 1.3.1
 library(ggfortify) # 0.4.11
 library(ggrepel) # 0.8.2
 library(biomaRt) # 2.44.4
+library(pheatmap) # 1.0.12
 
 # set paths
 data_path <-
@@ -44,7 +45,7 @@ results_path <-
 # do we want to use overlapping genes (between PAXgene and plasma) 
 # or keep all genes
 # "overlap" or "all_genes"
-genes_to_use <- "overlap"
+genes_to_use <- "all_genes"
 
 # all parameter values to test
 # minimum number of counts per sample in plasma
@@ -115,7 +116,7 @@ for (sample_id in meta_data$EARLI_Barcode) {
   }
 }
 meta_data$viruspos <- virus_vect
-write.csv(paxgene_metadata, paste(extra_data_path, "processed/EARLI_metadata_adjudication_IDseq_LPSstudyData_7.5.20_viruspos.csv", sep = ""), row.names = FALSE)
+write.csv(meta_data, paste(extra_data_path, "processed/EARLI_metadata_adjudication_IDseq_LPSstudyData_7.5.20_viruspos.csv", sep = ""), row.names = FALSE)
 
 # identify genes in common between the plasma and paxgene datasets
 genes_in_common <- intersect(rownames(plasma_data), rownames(paxgene_data))
@@ -144,7 +145,7 @@ ensembl <- useEnsembl(
 ensembl_res <- getBM(
   values = all_ensg_genes,
   filters = "ensembl_gene_id",
-  attributes = c("ensembl_gene_id", "hgnc_symbol"),
+  attributes = c("ensembl_gene_id", "hgnc_symbol", "gene_biotype"),
   mart = ensembl
 )
 ensembl_res <- ensembl_res[!duplicated(ensembl_res$ensembl_gene_id), ]
@@ -164,6 +165,38 @@ write.csv(plasma_data[2:nrow(plasma_data), ], paste(data_path, paste("processed/
 
 # save full paxgene data
 write.csv(paxgene_data, paste(data_path, paste("processed/paxgene_cnts.csv", sep = ""), sep = ""))
+
+# plasma G4 samples with 50,000 filter only
+# filter plasma samples with less than N protein coding genes-associated counts
+sample_names <- colnames(plasma_data[2:ncol(plasma_data)])
+samples_to_drop <- sample_names[(plasma_data[1, 2:ncol(plasma_data)] <= 50000)]
+
+plasma_data_filt <- plasma_data[, !(colnames(plasma_data) %in% samples_to_drop)]
+
+# keep only the plasma samples of interest depending on the comparison we want to make
+selected_samples <- meta_data[meta_data$sepsis_cat %in% c("4_NO_Sepsis"), "EARLI_Barcode"]
+plasma_data_filt <- plasma_data_filt[, colnames(plasma_data_filt) %in% c("hgnc_symbol", selected_samples)]
+
+write.csv(plasma_data_filt, paste(data_path, paste("../processed/50000_plasma_G4_unfiltered_cnts.csv", sep = ""), sep = ""))
+
+# plasma G3 and G5 samples with 50,000 filter only (on full set)
+# filter plasma samples with less than N protein coding genes-associated counts
+plasma_data_filt <- plasma_data[, !(colnames(plasma_data) %in% samples_to_drop)]
+
+# keep only the plasma samples of interest depending on the comparison we want to make
+selected_samples <- meta_data[meta_data$sepsis_cat %in% c("3_Sepsis+Cx-"), "EARLI_Barcode"]
+plasma_data_filt <- plasma_data_filt[, colnames(plasma_data_filt) %in% c("hgnc_symbol", selected_samples)]
+
+write.csv(plasma_data_filt, paste(data_path, paste("../processed/50000_plasma_G3_unfiltered_cnts.csv", sep = ""), sep = ""))
+
+# filter plasma samples with less than N protein coding genes-associated counts
+plasma_data_filt <- plasma_data[, !(colnames(plasma_data) %in% samples_to_drop)]
+
+# keep only the plasma samples of interest depending on the comparison we want to make
+selected_samples <- meta_data[meta_data$sepsis_cat %in% c("5_Unclear"), "EARLI_Barcode"]
+plasma_data_filt <- plasma_data_filt[, colnames(plasma_data_filt) %in% c("hgnc_symbol", selected_samples)]
+
+write.csv(plasma_data_filt, paste(data_path, paste("../processed/50000_plasma_G5_unfiltered_cnts.csv", sep = ""), sep = ""))
 
 # for each parameters combination
 for (row_ in rownames(comb_mat)) {
@@ -377,6 +410,10 @@ for (row_ in rownames(comb_mat)) {
   # save VST data
   write.csv(assay(vsd_plasma), paste(data_path, paste("processed/", paste(results_prefix, "plasma_vsd.csv", sep = "_"), sep = ""), sep = ""))
   write.csv(assay(vsd_paxgene), paste(data_path, paste("processed/", paste(results_prefix, "paxgene_vsd.csv", sep = "_"), sep = ""), sep = ""))
+  
+  vsd_plasma_tmp <- as.data.frame(assay(vsd_plasma))
+  vsd_plasma_tmp$hgnc_symbol <- gene_symbols_plasma
+  write.csv(vsd_plasma_tmp, paste(data_path, paste("processed/", paste(results_prefix, "plasma_vsd_with_hgnc_symbols.csv", sep = "_"), sep = ""), sep = ""))
 
   # plot a PCA with group labels overlaid
   # for the plasma data
@@ -406,19 +443,23 @@ for (row_ in rownames(comb_mat)) {
   dev.off()
 
   # extract DESeq2 results
+  res_plasma <- lfcShrink(dds_plasma,coef=2,type ="apeglm") 
   if (target_val == "sepsis"){
-    res_plasma <- results(dds_plasma, contrast = c("target_val", "1_Sepsis+BldCx+", "4_NO_Sepsis"))
+    #res_plasma <- results(dds_plasma, contrast = c("target_val", "1_Sepsis+BldCx+", "4_NO_Sepsis"))
     res_paxgene <- results(dds_paxgene, contrast = c("target_val", "1_Sepsis+BldCx+", "4_NO_Sepsis"))
   }else{
     if (target_val == "virus"){
-      res_plasma <- results(dds_plasma, contrast = c("target_val", "viral", "nonviral"))
+      #res_plasma <- results(dds_plasma, contrast = c("target_val", "viral", "nonviral"))
       res_paxgene <- results(dds_paxgene, contrast = c("target_val", "viral", "nonviral"))
     }
   }
 
-  # add gene symbols
+  # add gene symbols and biotype
   res_plasma$hgnc_symbol <- gene_symbols_plasma
   res_paxgene$hgnc_symbol <- gene_symbols_paxgene
+  
+  res_plasma$gene_biotype <- ensembl_res[rownames(res_plasma), "gene_biotype"]
+  res_paxgene$gene_biotype <- ensembl_res[rownames(res_paxgene), "gene_biotype"]
 
   # sort the genes from lowest to highest given adjusted p-values
   res_plasma <- res_plasma[order(res_plasma$padj, decreasing = F), ]
@@ -435,12 +476,16 @@ for (row_ in rownames(comb_mat)) {
   write.csv(sig_results_plasma, paste(results_path, paste(results_prefix, "plasma_DGEA_results.csv", sep = "_"), sep = ""))
   write.csv(sig_results_paxgene, paste(results_path, paste(results_prefix, "paxgene_DGEA_results.csv", sep = "_"), sep = ""))
 
+  # save unfiltered outputs (for IPA)
+  write.csv(data.frame(res_plasma), paste(results_path, paste(results_prefix, "plasma_DGEA_unfiltered_results.csv", sep = "_"), sep = ""))
+  write.csv(data.frame(res_paxgene), paste(results_path, paste(results_prefix, "paxgene_DGEA_unfiltered_results.csv", sep = "_"), sep = ""))
+  
   # generate a volcano plot
   # only display top 25 gene symbols
   # for plasma data
   res_plasma_df <- data.frame(res_plasma)
   res_plasma_df$sig <- res_plasma_df$padj < fdr_thresh
-  pdf(paste(results_path, paste(results_prefix, "plasma_volcano_plot.pdf", sep = "_"), sep = ""), width = 5, height = 5)
+  pdf(paste(results_path, paste(results_prefix, "plasma_volcano_plot.pdf", sep = "_"), sep = ""), width = 6, height = 6)
   p <- ggplot(res_plasma_df, aes(log2FoldChange, -log10(pvalue))) +
     geom_point(aes(col = sig)) +
     scale_color_manual(values = c("black", "red")) +
@@ -448,7 +493,8 @@ for (row_ in rownames(comb_mat)) {
     theme(legend.position = "none") +
     geom_text_repel(
       data = res_plasma_df[1:25, ],
-      aes(label = res_plasma_df[1:25, "hgnc_symbol"])
+      aes(label = res_plasma_df[1:25, "hgnc_symbol"]),
+      max.overlaps = 25
     )
   print(p)
   dev.off()
@@ -456,7 +502,7 @@ for (row_ in rownames(comb_mat)) {
   # for paxgene data
   res_paxgene_df <- data.frame(res_paxgene)
   res_paxgene_df$sig <- res_paxgene_df$padj < fdr_thresh
-  pdf(paste(results_path, paste(results_prefix, "paxgene_volcano_plot.pdf", sep = "_"), sep = ""), width = 5, height = 5)
+  pdf(paste(results_path, paste(results_prefix, "paxgene_volcano_plot.pdf", sep = "_"), sep = ""), width = 6, height = 6)
   p <- ggplot(res_paxgene_df, aes(log2FoldChange, -log10(pvalue))) +
     geom_point(aes(col = sig)) +
     scale_color_manual(values = c("black", "red")) +
@@ -464,8 +510,143 @@ for (row_ in rownames(comb_mat)) {
     theme(legend.position = "none") +
     geom_text_repel(
       data = res_paxgene_df[1:25, ],
-      aes(label = res_paxgene_df[1:25, "hgnc_symbol"])
+      aes(label = res_paxgene_df[1:25, "hgnc_symbol"]),
+      max.overlaps = 25
     )
   print(p)
+  dev.off()
+  
+  # generate heatmaps
+  annot_data <- meta_data_tmp[, target_col, drop=F]
+  annot_data[, target_col] <- as.factor(annot_data[, target_col])
+  
+  if (target_val=="sepsis"){
+    annot_data[, target_col] <- relevel(annot_data[, target_col], ref = "4_NO_Sepsis")
+  }else{
+    if (target_val=="virus"){
+      annot_data[, target_col] <- relevel(annot_data[, target_col], ref = "nonviral")
+    }
+  }
+  
+  # for plasma
+  hm_data_plasma <- assay(vsd_plasma)
+  hm_data_plasma <- hm_data_plasma[rownames(res_plasma_df[1:50, ]), ]
+  
+  # add hgnc symbols
+  rownames(hm_data_plasma) <- 
+    sapply(rownames(hm_data_plasma), function(x){
+      hgnc_symbol_tmp <- res_plasma_df[x, "hgnc_symbol"]
+      if (hgnc_symbol_tmp==""){
+        return(x)
+      }else{
+        return(hgnc_symbol_tmp)
+      }
+    })
+  
+  # order columns by annot_data
+  hm_data_plasma <- hm_data_plasma[, order(annot_data[, target_col])]
+  annot_data <- annot_data[colnames(hm_data_plasma), , drop=F]
+  
+  if (target_val ==  "sepsis"){
+    levels(annot_data[, target_col]) <- c(levels(annot_data[, target_col]), "1_Sepsis+BldCx+ \n2_Sepsis+OtherCx+")
+    annot_data[, target_col][annot_data[, target_col]=="1_Sepsis+BldCx+"] <- "1_Sepsis+BldCx+ \n2_Sepsis+OtherCx+" 
+    annot_data[, target_col] <- droplevels(annot_data[, target_col])
+    
+    col_vect <- c("#06788f", "#8b02bd")
+    names(col_vect) <- levels(annot_data[, target_col])
+    col_vect <- list("sepsis_cat"=col_vect)
+    
+    column_ha <- HeatmapAnnotation(sepsis_cat = annot_data[, target_col],
+                                   annotation_legend_param = list(nrow=2),
+                                   col = col_vect)
+  }else{
+    if (target_val=="virus"){
+      col_vect <- c("#06788f", "#8b02bd")
+      names(col_vect) <- levels(annot_data[, target_col])
+      col_vect <- list("viruspos"=col_vect)
+      
+      column_ha <- HeatmapAnnotation(viruspos = annot_data[, target_col],
+                                     annotation_legend_param = list(nrow=2),
+                                     col = col_vect)
+    }
+  }
+  
+  # row scaling
+  hm_data_plasma <- t(scale(t(hm_data_plasma)))
+  
+  # legend
+  col_fun <- colorRamp2(c(min(hm_data_plasma), 0, max(hm_data_plasma)), c("blue", "white", "red"))
+  lgd <- Legend(col_fun = col_fun, title = "expression")
+  
+  set.seed(123)
+  hm <- Heatmap(hm_data_plasma, name="expression", 
+                top_annotation = column_ha, column_split=annot_data[, target_col],
+                column_title = " ",
+                cluster_columns= FALSE, show_column_names = FALSE)
+  
+  pdf(paste(results_path, paste(results_prefix, "plasma_hm.pdf", sep = "_"), sep = ""),
+      width = 10, height = 10)
+  draw(hm, merge_legend = TRUE)
+  dev.off()
+  
+  # for paxgene
+  hm_data_paxgene <- assay(vsd_paxgene)
+  hm_data_paxgene <- hm_data_paxgene[rownames(res_paxgene_df[1:50, ]), ]
+  
+  # add hgnc symbols
+  rownames(hm_data_paxgene) <- 
+    sapply(rownames(hm_data_paxgene), function(x){
+      hgnc_symbol_tmp <- res_paxgene_df[x, "hgnc_symbol"]
+      if (hgnc_symbol_tmp==""){
+        return(x)
+      }else{
+        return(hgnc_symbol_tmp)
+      }
+    })
+  
+  # order columns by annot_data
+  hm_data_paxgene <- hm_data_paxgene[, order(annot_data[, target_col])]
+  annot_data <- annot_data[colnames(hm_data_paxgene), , drop=F]
+
+  if (target_val ==  "sepsis"){
+    levels(annot_data[, target_col]) <- c(levels(annot_data[, target_col]), "1_Sepsis+BldCx+ \n2_Sepsis+OtherCx+")
+    annot_data[, target_col][annot_data[, target_col]=="1_Sepsis+BldCx+"] <- "1_Sepsis+BldCx+ \n2_Sepsis+OtherCx+" 
+    annot_data[, target_col] <- droplevels(annot_data[, target_col])
+    
+    col_vect <- c("#06788f", "#8b02bd")
+    names(col_vect) <- levels(annot_data[, target_col])
+    col_vect <- list("sepsis_cat"=col_vect)
+    
+    column_ha <- HeatmapAnnotation(sepsis_cat = annot_data[, target_col],
+                                   annotation_legend_param = list(nrow=2),
+                                   col = col_vect)
+  }else{
+    if (target_val=="virus"){
+      col_vect <- c("#06788f", "#8b02bd")
+      names(col_vect) <- levels(annot_data[, target_col])
+      col_vect <- list("viruspos"=col_vect)
+      
+      column_ha <- HeatmapAnnotation(viruspos = annot_data[, target_col],
+                                     annotation_legend_param = list(nrow=2),
+                                     col = col_vect)
+    }
+  }
+  
+  # row scaling
+  hm_data_paxgene <- t(scale(t(hm_data_paxgene)))
+  
+  # legend
+  col_fun <- colorRamp2(c(min(hm_data_paxgene), 0, max(hm_data_paxgene)), c("blue", "white", "red"))
+  lgd <- Legend(col_fun = col_fun, title = "expression")
+  
+  set.seed(123)
+  hm <- Heatmap(hm_data_paxgene, name="expression", 
+                top_annotation = column_ha, column_split=annot_data[, target_col],
+                column_title = " ",
+                cluster_columns= FALSE, show_column_names = FALSE)
+  
+  pdf(paste(results_path, paste(results_prefix, "paxgene_hm.pdf", sep = "_"), sep = ""),
+      width = 10, height = 10)
+  draw(hm, merge_legend = TRUE)
   dev.off()
 }
