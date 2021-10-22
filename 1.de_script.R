@@ -5,19 +5,20 @@
 
 # This script aims at performing a differential
 #   expression analysis between samples,
-#   given their sepsis/viral status
+#   given sepsis/viral status
 
 # Input files (data folder):
 # - CSV-formatted file containing gene counts from PAXgene and plasma samples
 #   (genes x samples)
 # - CSV-formatted files containing sepsis/viral status
-#   and Sex and Age (samples x label)
+#   and covariates (samples x label)
 
 # Output files (results folder):
-# - One file with counts values per run.
-# - One file with normalised (unscaled) gene expression values per run.
-# - One metadata file per run.
-# - One CSV file with significantly differentially expressed genes per run.
+# - Gene counts values
+# - Normalised (unscaled) gene expression values
+# - Metadata
+# - CSV file listing significantly differentially expressed genes
+# - PCA plot, volcano plot, and expression heatmap
 ######################################################
 
 rm(list = ls())
@@ -104,7 +105,7 @@ colnames(paxgene_data) <- sapply(colnames(paxgene_data), function(x) paste(strsp
 meta_data$EARLI_Barcode <- sapply(meta_data$Barcode, function(x) paste("EARLI", x, sep = "_"))
 colnames(meta_data)[colnames(meta_data) == "Group"] <- "sepsis_cat"
 
-# add virus status
+# add virus status to metadata frame
 virus_vect <- c()
 for (sample_id in meta_data$EARLI_Barcode) {
   if (!is.na(sample_id)) {
@@ -120,11 +121,11 @@ for (sample_id in meta_data$EARLI_Barcode) {
 meta_data$viruspos <- virus_vect
 write.csv(meta_data, paste(extra_data_path, "processed/EARLI_metadata_adjudication_IDseq_LPSstudyData_7.5.20_viruspos.csv", sep = ""), row.names = FALSE)
 
-# identify genes in common between the plasma and paxgene datasets
-genes_in_common <- intersect(rownames(plasma_data), rownames(paxgene_data))
-
 # if we only want to use genes in common between the plasma and PAXgene datasets
 if (genes_to_use == "overlap") {
+  # identify genes in common between plasma and paxgene datasets
+  genes_in_common <- intersect(rownames(plasma_data), rownames(paxgene_data))
+  
   # "" is for the total counts on the full original dataset
   plasma_data <- plasma_data[rownames(plasma_data) %in% c("", genes_in_common), ]
   paxgene_data <- paxgene_data[rownames(paxgene_data) %in% genes_in_common, ]
@@ -168,13 +169,14 @@ write.csv(plasma_data[2:nrow(plasma_data), ], paste(data_path, paste("processed/
 # save full paxgene data
 write.csv(paxgene_data, paste(data_path, paste("processed/paxgene_cnts.csv", sep = ""), sep = ""))
 
-# plasma G4 samples with 50,000 filter only
+# 50,000 filter
 # filter plasma samples with less than N protein coding genes-associated counts
 sample_names <- colnames(plasma_data[2:ncol(plasma_data)])
 samples_to_drop <- sample_names[(plasma_data[1, 2:ncol(plasma_data)] <= 50000)]
 
 plasma_data_filt <- plasma_data[, !(colnames(plasma_data) %in% samples_to_drop)]
 
+# G4 plasma samples
 # keep only the plasma samples of interest depending on the comparison we want to make
 selected_samples <- meta_data[meta_data$sepsis_cat %in% c("4_NO_Sepsis"), "EARLI_Barcode"]
 plasma_data_filt <- plasma_data_filt[, colnames(plasma_data_filt) %in% c("hgnc_symbol", selected_samples)]
@@ -231,7 +233,7 @@ for (row_ in rownames(comb_mat)) {
     }
   }
 
-  # generate a unique prefix for that combination
+  # generate unique prefix for that combination
   results_prefix <- paste(as.character(as.integer(min_cnts_per_sample)),
                           paste(paste(min_non_zero_counts_per_genes, fdr_thresh, sep = "_"), 
                                 paste(age_sex_model, paste(comp_, target_val, sep="_"), sep = "_"), sep = "_"),
@@ -259,7 +261,6 @@ for (row_ in rownames(comb_mat)) {
     }
   }
   plasma_data_filt <- plasma_data_filt[, colnames(plasma_data_filt) %in% c("hgnc_symbol", selected_samples)]
-  plasma_data_low <- plasma_data[, colnames(plasma_data) %in% c("hgnc_symbol", intersect(selected_samples, samples_to_drop))]
 
   # filter genes present in only some of the plasma samples (use only samples with more than the minimum count)
   # ignore first row (gene counts per sample) and last column (gene symbols)
@@ -267,7 +268,6 @@ for (row_ in rownames(comb_mat)) {
   gene_data <- plasma_data_filt[2:nrow(plasma_data_filt), 1:(ncol(plasma_data_filt) - 1)]
   genes_to_drop <- gene_names[apply(gene_data, 1, function(x) sum(x > 0)) / (ncol(plasma_data_filt) - 1) < (min_non_zero_counts_per_genes / 100)]
   plasma_data_filt <- plasma_data_filt[!(rownames(plasma_data_filt) %in% genes_to_drop), ]
-  plasma_data_low <- plasma_data_low[!(rownames(plasma_data_low) %in% genes_to_drop), ]
 
   # filter the meta data to match the selected samples
   # make sure our variable of interest is a factor
@@ -275,18 +275,12 @@ for (row_ in rownames(comb_mat)) {
   meta_data_filt$sepsis_cat <- as.factor(meta_data_filt$sepsis_cat)
   meta_data_filt$viruspos <- as.factor(meta_data_filt$viruspos)
 
-  meta_data_low <- meta_data[meta_data$EARLI_Barcode %in% colnames(plasma_data_low), ]
-  meta_data_low$sepsis_cat <- as.factor(meta_data_low$sepsis_cat)
-  meta_data_low$viruspos <- as.factor(meta_data_low$viruspos)
-
   # for paxgene data, filter samples to keep the same ones as the ones selected from the plasma data
   paxgene_data_filt <- paxgene_data[, colnames(paxgene_data) %in% c(meta_data_filt$EARLI_Barcode, "hgnc_symbol")]
-  paxgene_data_low <- paxgene_data[, colnames(paxgene_data) %in% c(meta_data_low$EARLI_Barcode, "hgnc_symbol")]
 
   # if we only consider overlapping genes
   if (genes_to_use == "overlap") {
     paxgene_data_filt <- paxgene_data_filt[rownames(paxgene_data_filt) %in% rownames(plasma_data_filt), ]
-    paxgene_data_low <- paxgene_data_low[rownames(paxgene_data_low) %in% rownames(plasma_data_low), ]
   }
 
   # replace missing age values by average for that subgroup
@@ -300,17 +294,13 @@ for (row_ in rownames(comb_mat)) {
   for (target_val_cat in unique(meta_data_filt[, target_col])) {
     meta_data_filt$Age[is.na(meta_data_filt$Age) & meta_data_filt[, target_col] == target_val_cat] <-
       mean(meta_data_filt$Age[(!is.na(meta_data_filt$Age)) & meta_data_filt[, target_col] == target_val_cat])
-    meta_data_low$Age[is.na(meta_data_low$Age) & meta_data_low[, target_col] == target_val_cat] <-
-      mean(meta_data_low$Age[(!is.na(meta_data_low$Age)) & meta_data_low[, target_col] == target_val_cat])
   }
 
   # standard scaling on Age
   meta_data_filt$age_scaled <- scale(meta_data_filt$Age)
-  meta_data_low$age_scaled <- scale(meta_data_low$Age)
 
   # make sure gender is a factor
   meta_data_filt$gender <- as.factor(meta_data_filt$Gender)
-  meta_data_low$gender <- as.factor(meta_data_low$Gender)
 
   # drop first row and column and store gene symbols
   plasma_data_filt <- plasma_data_filt[2:nrow(plasma_data_filt), ]
@@ -318,25 +308,13 @@ for (row_ in rownames(comb_mat)) {
   gene_symbols_plasma <- plasma_data_filt$hgnc_symbol
   plasma_data_filt <- plasma_data_filt[, 1:(ncol(plasma_data_filt) - 1)]
 
-  plasma_data_low <- plasma_data_low[2:nrow(plasma_data_low), ]
-  plasma_data_low_symbols <- plasma_data_low
-  plasma_data_low <- plasma_data_low[, 1:(ncol(plasma_data_low) - 1)]
-
   paxgene_data_filt_symbols <- paxgene_data_filt
   gene_symbols_paxgene <- paxgene_data_filt$hgnc_symbol
   paxgene_data_filt <- paxgene_data_filt[, 1:(ncol(paxgene_data_filt) - 1)]
 
-  paxgene_data_low_symbols <- paxgene_data_low
-  paxgene_data_low <- paxgene_data_low[, 1:(ncol(paxgene_data_low) - 1)]
-
   # save the counts data with gene symbols
   write.csv(plasma_data_filt_symbols, paste(data_path, paste("processed/", paste(results_prefix, "plasma_cnts.csv", sep = "_"), sep = ""), sep = ""))
-  write.csv(plasma_data_low_symbols, paste(data_path, paste("processed/", paste(results_prefix, "plasma_cnts_low.csv", sep = "_"), sep = ""), sep = ""))
-
   write.csv(paxgene_data_filt_symbols, paste(data_path, paste("processed/", paste(results_prefix, "paxgene_cnts.csv", sep = "_"), sep = ""), sep = ""))
-  write.csv(paxgene_data_low_symbols, paste(data_path, paste("processed/", paste(results_prefix, "paxgene_cnts_low.csv", sep = "_"), sep = ""), sep = ""))
-
-  write.csv(meta_data_low, paste(data_path, paste("processed/", paste(results_prefix, "metadata_low.csv", sep = "_"), sep = ""), sep = ""))
 
   #########################
   # DE ANALYSIS
