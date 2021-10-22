@@ -30,6 +30,8 @@ library(ggfortify) # 0.4.11
 library(ggrepel) # 0.8.2
 library(biomaRt) # 2.44.4
 library(pheatmap) # 1.0.12
+library(ComplexHeatmap) # 2.9.3
+library(circlize) # 0.4.13
 
 # set paths
 data_path <-
@@ -585,7 +587,7 @@ for (row_ in rownames(comb_mat)) {
                 cluster_columns= FALSE, show_column_names = FALSE)
   
   pdf(paste(results_path, paste(results_prefix, "plasma_hm.pdf", sep = "_"), sep = ""),
-      width = 10, height = 10)
+      width = 10, height = 8)
   draw(hm, merge_legend = TRUE)
   dev.off()
   
@@ -646,7 +648,7 @@ for (row_ in rownames(comb_mat)) {
                 cluster_columns= FALSE, show_column_names = FALSE)
   
   pdf(paste(results_path, paste(results_prefix, "paxgene_hm.pdf", sep = "_"), sep = ""),
-      width = 10, height = 10)
+      width = 10, height = 8)
   draw(hm, merge_legend = TRUE)
   dev.off()
 }
