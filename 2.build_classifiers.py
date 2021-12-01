@@ -29,6 +29,7 @@ from custom_classes import VstTransformer, CustomRFECV, CustomBaggingClassifier,
 import matplotlib.pyplot as plt
 # 1.19.1
 import numpy as np
+from numpy import interp
 # 1.1.3
 import pandas as pd
 # 0.23.2
@@ -48,7 +49,7 @@ results_path = "/Users/lucileneyton/OneDrive - University of California, San Fra
 
 # set params
 # "create" from scratch or "load" existing dump files
-mode_ = "load"
+mode_ = "create"
 # all_genes or overlap between PAXgene and plasma datasets
 genes_to_use = "all_genes"
 # CV number for nested procedure
@@ -74,6 +75,9 @@ comb_list = [('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'xgb', True, "1v
              ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'xgb', True, "124"),
              ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'bsvm', True, "124"),
              ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'bsvm', True, "124")]
+
+comb_list = [('plasma', '50000', '20', '0.5', 'plasma', 'TRUE', 'bsvm', True, "12")]
+#comb_list = [('plasma', '50000', '20', '0.5', 'plasma', 'TRUE', 'bsvm', True, "12vs4")]
 
 # set paths
 plasma_data_path = plasma_data_path + genes_to_use + "/"
@@ -107,8 +111,10 @@ for comb_ in comb_list:
     # DATA LOADING
     #########################
     # counts data
-    paxgene_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_paxgene_cnts.csv", index_col=0)
-    plasma_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_plasma_cnts.csv", index_col=0)
+    #plasma_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_plasma_cnts.csv", index_col=0)
+    results_prefix_cnts = results_prefix.replace("_TRUE_", "_")
+    #paxgene_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix_cnts + "_paxgene_train_only_cnts.csv", index_col=0)
+    plasma_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix_cnts + "_plasma_train_only_cnts.csv", index_col=0)
 
     # predictions for plasma data
     # if viral classifier not including G4 (non-sepsis)
@@ -136,21 +142,24 @@ for comb_ in comb_list:
         G5_plasma_cnt_data = G5_plasma_cnt_data.T
 
     # plasma meta data (to order main metadata frame)
-    meta_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_metadata.csv", index_col=0)
+    meta_data = pd.read_csv(plasma_data_path.replace("all_genes/", "") + "processed/" + results_prefix.replace("_TRUE_", "_") + "_train_only_metadata.csv", index_col=0)
+    #meta_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_metadata.csv", index_col=0)
 
     # choose the list of DE genes (paxgene or plasma)
     if de_genes_from_ == "paxgene":
         dgea_results = pd.read_csv(results_path + results_prefix + "_paxgene_DGEA_results.csv", index_col=0)
     else:
         if de_genes_from_ == "plasma":
-            dgea_results = pd.read_csv(results_path + results_prefix + "_plasma_DGEA_results.csv", index_col=0)
+            #dgea_results = pd.read_csv(results_path + results_prefix + "_plasma_DGEA_results.csv", index_col=0)
+            results_prefix_dgea = results_prefix.replace("_TRUE_", "_")
+            dgea_results = pd.read_csv(results_path + "../" + results_prefix_dgea + "_plasma_train_only_DGEA_results.csv", index_col=0)
 
     #########################
     # DATA PREPROCESSING
     #########################
     # drop the gene symbol column
-    paxgene_cnt_data = paxgene_cnt_data.drop("hgnc_symbol", axis=1)
-    plasma_cnt_data = plasma_cnt_data.drop("hgnc_symbol", axis=1)
+    #paxgene_cnt_data = paxgene_cnt_data.drop("hgnc_symbol", axis=1)
+    #plasma_cnt_data = plasma_cnt_data.drop("hgnc_symbol", axis=1)
 
     # lump G2 with G1 for classifier
     if comp_ == "12vs4":
@@ -163,20 +172,9 @@ for comb_ in comb_list:
     meta_data = meta_data.set_index("EARLI_Barcode")
     meta_data = meta_data.loc[plasma_cnt_data.columns, :]
 
-    # keep only genes overlapping
-    if genes_to_use == "overlap":
-        paxgene_cnt_data = paxgene_cnt_data.loc[paxgene_cnt_data.index.isin(plasma_cnt_data.index), :]
-
-        # reindex paxgene data so that order is the same as for plasma data
-        paxgene_cnt_data = paxgene_cnt_data.reindex(plasma_cnt_data.index)
-
     # list genes used as input
-    if data_from_ == "paxgene":
-        name_vars = paxgene_cnt_data.index.values
-
-    else:
-        if data_from_ == "plasma":
-            name_vars = plasma_cnt_data.index.values
+    if data_from_ == "plasma":
+        name_vars = plasma_cnt_data.index.values
 
     # DE genes indexes
     y = dgea_results.index.values
@@ -237,19 +235,17 @@ for comb_ in comb_list:
     search = GridSearchCV(estimator=pipe, cv=num_cv, n_jobs=1, scoring='roc_auc', param_grid=param_grid, verbose=True)
 
     # add parameters prefix that will be used to save output files and figures
-    output_prefix = comb_[0] + "_" + comb_[1] + "_" + comb_[2] + "_" + comb_[3] + "_" + comb_[4] + "_" + comb_[5] + \
-                    "_" + comb_[6] + "_" + comb_[8] + "_" + target_
+    #output_prefix = comb_[0] + "_" + comb_[1] + "_" + comb_[2] + "_" + comb_[3] + "_" + comb_[4] + "_" + comb_[5] + \
+                    #"_" + comb_[6] + "_" + comb_[8] + "_" + target_
+    output_prefix = comb_[0] + "_train_only_" + comb_[1] + "_" + comb_[2] + "_" + comb_[3] + "_" + comb_[4] + "_" + \
+                    comb_[5] +  "_" + comb_[6] + "_" + comb_[8] + "_" + target_
 
     # transpose data for classifiers
-    paxgene_cnt_data = paxgene_cnt_data.T
     plasma_cnt_data = plasma_cnt_data.T
 
     # identify target data
-    if data_from_ == "paxgene":
-        target_data = paxgene_cnt_data
-    else:
-        if data_from_ == "plasma":
-            target_data = plasma_cnt_data
+    if data_from_ == "plasma":
+        target_data = plasma_cnt_data
 
     # target classes for count data
     if target_ == 'sepsis':
@@ -432,6 +428,9 @@ for comb_ in comb_list:
     # AUC-ROC curves
     #########################
     # plot ROC curve for the testing set
+    tprs_ = []
+    base_fpr = np.linspace(0, 1, 101)
+
     plt.figure()
     for i in cvs_id:
         cv_id = str(i + 1)
@@ -439,13 +438,29 @@ for comb_ in comb_list:
                                           cvs_aucroc_test[i]["probs"],
                                           pos_label=cvs_aucroc_test[i]["classes"])
 
-        if i == 0:
-            plt.plot(fpr_test, tpr_test, label='Cross-validation splits, AUC=' +
+        #if i == 0:
+            #plt.plot(fpr_test, tpr_test, label='Cross-validation splits, AUC=' +
+                                               #str(np.mean([x["roc_auc"].round(2) for x in cvs_aucroc_test]).round(2)) + " (" +
+                                               #str(np.std([x["roc_auc"].round(2) for x in cvs_aucroc_test]).round(2)) + ")",
+                     #color="red", linewidth=1, alpha=0.3)
+        #else:
+            #plt.plot(fpr_test, tpr_test, color="red", linewidth=1, alpha=0.3)
+
+        tpr_ = interp(base_fpr, fpr_test, tpr_test)
+        tpr_[0] = 0.0
+        tprs_.append(tpr_)
+
+    tprs_ = np.array(tprs_)
+    mean_tprs = tprs_.mean(axis=0)
+    std_tprs = tprs_.std(axis=0)
+
+    tprs_upper = np.minimum(mean_tprs + std_tprs, 1)
+    tprs_lower = mean_tprs - std_tprs
+
+    plt.plot(base_fpr, mean_tprs, 'red', label='Cross-validation splits, AUC=' +
                                                str(np.mean([x["roc_auc"].round(2) for x in cvs_aucroc_test]).round(2)) + " (" +
-                                               str(np.std([x["roc_auc"].round(2) for x in cvs_aucroc_test]).round(2)) + ")",
-                     color="red", linewidth=1, alpha=0.3)
-        else:
-            plt.plot(fpr_test, tpr_test, color="red", linewidth=1, alpha=0.3)
+                                               str(np.std([x["roc_auc"].round(2) for x in cvs_aucroc_test]).round(2)) + ")")
+    plt.fill_between(base_fpr, tprs_lower, tprs_upper, color='red', alpha=0.2)
 
     # add ROC curve for the full test set
     probs = search.predict_proba(cnt_data_test_full)
