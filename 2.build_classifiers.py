@@ -77,7 +77,6 @@ comb_list = [('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'xgb', True, "1v
              ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'bsvm', True, "124")]
 
 comb_list = [('plasma', '50000', '20', '0.5', 'plasma', 'TRUE', 'bsvm', True, "12")]
-#comb_list = [('plasma', '50000', '20', '0.5', 'plasma', 'TRUE', 'bsvm', True, "12vs4")]
 
 # set paths
 plasma_data_path = plasma_data_path + genes_to_use + "/"
@@ -111,9 +110,7 @@ for comb_ in comb_list:
     # DATA LOADING
     #########################
     # counts data
-    #plasma_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_plasma_cnts.csv", index_col=0)
     results_prefix_cnts = results_prefix.replace("_TRUE_", "_")
-    #paxgene_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix_cnts + "_paxgene_train_only_cnts.csv", index_col=0)
     plasma_cnt_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix_cnts + "_plasma_train_only_cnts.csv", index_col=0)
 
     # predictions for plasma data
@@ -143,24 +140,18 @@ for comb_ in comb_list:
 
     # plasma meta data (to order main metadata frame)
     meta_data = pd.read_csv(plasma_data_path.replace("all_genes/", "") + "processed/" + results_prefix.replace("_TRUE_", "_") + "_train_only_metadata.csv", index_col=0)
-    #meta_data = pd.read_csv(plasma_data_path + "processed/" + results_prefix + "_metadata.csv", index_col=0)
 
     # choose the list of DE genes (paxgene or plasma)
     if de_genes_from_ == "paxgene":
         dgea_results = pd.read_csv(results_path + results_prefix + "_paxgene_DGEA_results.csv", index_col=0)
     else:
         if de_genes_from_ == "plasma":
-            #dgea_results = pd.read_csv(results_path + results_prefix + "_plasma_DGEA_results.csv", index_col=0)
             results_prefix_dgea = results_prefix.replace("_TRUE_", "_")
             dgea_results = pd.read_csv(results_path + "../" + results_prefix_dgea + "_plasma_train_only_DGEA_results.csv", index_col=0)
 
     #########################
     # DATA PREPROCESSING
     #########################
-    # drop the gene symbol column
-    #paxgene_cnt_data = paxgene_cnt_data.drop("hgnc_symbol", axis=1)
-    #plasma_cnt_data = plasma_cnt_data.drop("hgnc_symbol", axis=1)
-
     # lump G2 with G1 for classifier
     if comp_ == "12vs4":
         meta_data.sepsis_cat = ["1_Sepsis+BldCx+" if x=="2_Sepsis+OtherCx+" else x for x in meta_data.sepsis_cat]
@@ -235,8 +226,6 @@ for comb_ in comb_list:
     search = GridSearchCV(estimator=pipe, cv=num_cv, n_jobs=1, scoring='roc_auc', param_grid=param_grid, verbose=True)
 
     # add parameters prefix that will be used to save output files and figures
-    #output_prefix = comb_[0] + "_" + comb_[1] + "_" + comb_[2] + "_" + comb_[3] + "_" + comb_[4] + "_" + comb_[5] + \
-                    #"_" + comb_[6] + "_" + comb_[8] + "_" + target_
     output_prefix = comb_[0] + "_train_only_" + comb_[1] + "_" + comb_[2] + "_" + comb_[3] + "_" + comb_[4] + "_" + \
                     comb_[5] +  "_" + comb_[6] + "_" + comb_[8] + "_" + target_
 
@@ -437,14 +426,6 @@ for comb_ in comb_list:
         fpr_test, tpr_test, _ = roc_curve(cvs_aucroc_test[i]["labels"],
                                           cvs_aucroc_test[i]["probs"],
                                           pos_label=cvs_aucroc_test[i]["classes"])
-
-        #if i == 0:
-            #plt.plot(fpr_test, tpr_test, label='Cross-validation splits, AUC=' +
-                                               #str(np.mean([x["roc_auc"].round(2) for x in cvs_aucroc_test]).round(2)) + " (" +
-                                               #str(np.std([x["roc_auc"].round(2) for x in cvs_aucroc_test]).round(2)) + ")",
-                     #color="red", linewidth=1, alpha=0.3)
-        #else:
-            #plt.plot(fpr_test, tpr_test, color="red", linewidth=1, alpha=0.3)
 
         tpr_ = interp(base_fpr, fpr_test, tpr_test)
         tpr_[0] = 0.0

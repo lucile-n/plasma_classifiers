@@ -41,7 +41,7 @@ min_cnts_per_sample_vals <- c(50000)
 # percentage of samples with non-zero counts per gene
 min_non_zero_counts_per_genes_vals <- c(20)
 # FDR threshold to call a gene differentially expressed
-fdr_thresh_vals <- c(0.5)
+fdr_thresh_vals <- c(0.1)
 nominal_pval <- F
 # target variable
 targets_vals <- c("sepsis", "virus")
@@ -216,8 +216,6 @@ for (row_ in rownames(comb_mat)) {
   
   # save filtered counts
   # make sure test samples included
-  #write.csv(plasma_data[rownames(plasma_data_filt), c(colnames(plasma_data_filt), test_samples_to_exclude)], 
-            #paste0(data_path, paste0("all_genes/processed/", paste(results_prefix, "plasma_train_only_cnts.csv", sep = "_"))))
   write.csv(plasma_data[rownames(plasma_data_filt), colnames(plasma_data) %in% c(colnames(plasma_data_filt), test_samples_to_exclude)], 
             paste0(data_path, paste0("all_genes/processed/", paste(results_prefix, "plasma_train_only_cnts.csv", sep = "_"))))
   
