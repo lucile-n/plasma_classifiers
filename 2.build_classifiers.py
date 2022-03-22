@@ -49,7 +49,7 @@ results_path = "/Users/lucileneyton/OneDrive - University of California, San Fra
 
 # set params
 # "create" from scratch or "load" existing dump files
-mode_ = "create"
+mode_ = "load"
 # all_genes or overlap between PAXgene and plasma datasets
 genes_to_use = "all_genes"
 # CV number for nested procedure
@@ -59,24 +59,8 @@ test_prop = 0.25
 
 # list parameter values
 # data type / min gene count per sample / % non-zero count per gene / DE FDR / DE genes list generated from / covariates / algo /cv train test / comp
-comb_list = [('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'xgb', True, "1vs4"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'xgb', True, "1vs4"),
-             ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'bsvm', True, "1vs4"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'bsvm', True, "1vs4"),
-             ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'xgb', True, "12vs4"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'xgb', True, "12vs4"),
-             ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'bsvm', True, "12vs4"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'bsvm', True, "12vs4"),
-             ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'xgb', True, "12"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'xgb', True, "12"),
-             ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'bsvm', True, "12"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'bsvm', True, "12"),
-             ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'xgb', True, "124"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'xgb', True, "124"),
-             ('plasma', '50000', '20', '0.1', 'plasma', 'TRUE', 'bsvm', True, "124"),
-             ('paxgene', '50000', '20', '0.1', 'paxgene', 'TRUE', 'bsvm', True, "124")]
-
-comb_list = [('plasma', '50000', '20', '0.5', 'plasma', 'TRUE', 'bsvm', True, "12")]
+comb_list = [('plasma', '50000', '20', '0.3', 'plasma', 'TRUE', 'bsvm', True, "12vs4"),
+             ('plasma', '50000', '20', '0.2', 'plasma', 'TRUE', 'bsvm', True, "12")]
 
 # set paths
 plasma_data_path = plasma_data_path + genes_to_use + "/"
@@ -139,7 +123,7 @@ for comb_ in comb_list:
         G5_plasma_cnt_data = G5_plasma_cnt_data.T
 
     # plasma meta data (to order main metadata frame)
-    meta_data = pd.read_csv(plasma_data_path.replace("all_genes/", "") + "processed/" + results_prefix.replace("_TRUE_", "_") + "_train_only_metadata.csv", index_col=0)
+    meta_data = pd.read_csv(plasma_data_path.replace("all_genes/", "") + "processed/" + results_prefix.replace("_TRUE_", "_").replace(comb_[3], "0.1") + "_train_only_metadata.csv", index_col=0)
 
     # choose the list of DE genes (paxgene or plasma)
     if de_genes_from_ == "paxgene":
@@ -297,6 +281,9 @@ for comb_ in comb_list:
 
         # extract predictors
         best_vars = name_vars[y][search.best_estimator_.named_steps["rfe"].support_]
+
+        pd.DataFrame(best_vars).to_csv(results_path + output_prefix + "_" + cv_id + "_full_best_vars.csv", header=False,
+                                       index=False)
 
         # store key elements and add to results list
         probs = search.predict_proba(cnt_data_train)[:, 1]
@@ -489,6 +476,10 @@ for comb_ in comb_list:
     dict_probs = {'sample_ids': cnt_data_test_full.index.values,
                   'probs': target_probs, 'true_label': target_cat_test_full}
     pd.DataFrame(data=dict_probs).to_csv(results_path + output_prefix + "_full_test_probs.csv")
+
+    # for all samples, average test probabilities
+    all_labels = [x["labels"].index.values for x in cvs_aucroc_test]
+    all_probs = [x["probs"] for x in cvs_aucroc_test]
 
     # if plasma, save probabilities for all samples
     if data_from_ == "plasma":

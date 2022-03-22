@@ -41,7 +41,7 @@ min_cnts_per_sample_vals <- c(50000)
 # percentage of samples with non-zero counts per gene
 min_non_zero_counts_per_genes_vals <- c(20)
 # FDR threshold to call a gene differentially expressed
-fdr_thresh_vals <- c(0.1)
+fdr_thresh_vals <- c(0.5)
 nominal_pval <- F
 # target variable
 targets_vals <- c("sepsis", "virus")
